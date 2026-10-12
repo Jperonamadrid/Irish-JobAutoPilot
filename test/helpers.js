@@ -6,6 +6,10 @@ const path = require('path');
 
 const home = fs.mkdtempSync(path.join(os.tmpdir(), 'jobpilot-test-'));
 process.env.JOBPILOT_HOME = home;
+// Temporary folders made by a test file are removed when it finishes.
+const temps = [home];
+const tempDir = prefix => { const d = fs.mkdtempSync(path.join(os.tmpdir(), prefix)); temps.push(d); return d; };
+process.on('exit', () => { for (const d of temps) fs.rmSync(d, { recursive: true, force: true }); });
 const fixture = name => fs.readFileSync(path.join(__dirname, 'fixtures', name), 'utf8');
 
 function makeUser(name = 'Test Person', { settings = {}, profile = {}, cv } = {}) {
@@ -30,4 +34,4 @@ function fakeFetch(routes) {
   };
 }
 
-module.exports = { home, fixture, makeUser, fakeFetch };
+module.exports = { home, tempDir, fixture, makeUser, fakeFetch };
