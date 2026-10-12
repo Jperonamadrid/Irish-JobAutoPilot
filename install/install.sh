@@ -22,7 +22,7 @@
 main() {
   set -euo pipefail
   local REPO="Jperonamadrid/Irish-JobAutoPilot" REF="${JOBPILOT_REF:-main}" DIR="${JOBPILOT_DIR:-$HOME/JobPilot}" NODE_LINE="22"
-  local tmp; tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
+  local tmp; tmp="$(mktemp -d)"; trap "rm -rf '$tmp'" EXIT   # expanded now: tmp is gone when the trap runs
   say() { printf '\n\033[1;34m==>\033[0m %s\n' "$*"; }
   fail() { printf '\n\033[1;31mJobPilot could not be installed:\033[0m %s\n' "$*" >&2; exit 1; }
   ask() { if [ -r /dev/tty ]; then read -r -p "$1" REPLY </dev/tty || true; fi; }
