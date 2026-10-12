@@ -137,7 +137,7 @@ $('#ver').onclick = guard(async () => {
   await loadUpdate(true);
   const u = state.update;
   if (u?.error) toast('Could not check for updates: ' + u.error, 7000);
-  else if (u?.newer) { showTab('home'); window.scrollTo(0, 0); }
+  else if (u?.newer) window.scrollTo(0, 0);
   else toast(`You have the latest version (${u?.current}).`);
 });
 const recommended = () => { const c = state.data?.counts || {}; return (c.ready || 0) + (c.manual || 0); };
