@@ -411,7 +411,9 @@ function jobCard(j) {
     <div class="btns">
       ${['ready', 'manual'].includes(j.status) && !k ? `<button class="small" data-kit="${esc(j.id)}">Make CV + letter</button>` : ''}
       ${['ready', 'needs_input', 'ready_to_submit'].includes(j.status) && j.canFill ? `<button class="small accent" data-review="${esc(j.id)}">Fill the form for me</button>` : ''}
-      ${j.status !== 'submitted' ? `<button class="small accent" data-mark="submitted" data-id="${esc(j.id)}">I applied</button>` : ''}
+      ${j.status !== 'submitted' ? (j.hasTailoredCv
+        ? `<span class="applied-with" data-id="${esc(j.id)}"><button class="small accent" data-applied="${esc(j.id)}">I applied</button></span>`
+        : `<button class="small accent" data-mark="submitted" data-id="${esc(j.id)}">I applied</button>`) : ''}
       ${!['submitted', 'skipped'].includes(j.status) ? `<button class="small ghost" data-mark="skipped" data-id="${esc(j.id)}">Not for me</button>` : ''}
       ${j.status === 'skipped' ? `<button class="small ghost" data-mark="ready" data-id="${esc(j.id)}">Recommend anyway</button>` : ''}
     </div></div>`;
@@ -422,20 +424,30 @@ const nudgeText = n => n.kind === 'follow_up'
   ? `⏰ Applied ${n.days} days ago with no reply. A short, polite follow-up email to the recruiter often helps.`
   : `No reply after ${n.days} days. Mark it as "No reply" to keep your results accurate.`;
 function outcomeRow(j) {
-  return `<div class="outcome"><label class="row">What happened? <select data-outcome="${esc(j.id)}" style="width:auto">${OUTCOMES.map(([v, l]) =>
+  return `<div class="outcome"><div class="row wrap"><label class="row">What happened? <select data-outcome="${esc(j.id)}" style="width:auto">${OUTCOMES.map(([v, l]) =>
       `<option value="${v}" ${(j.outcome || 'waiting') === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+    ${j.hasTailoredCv ? `<label class="row">CV sent <select data-cvused="${esc(j.id)}" style="width:auto">${[['', 'Not recorded'], ['tailored', 'Tailored'], ['standard', 'Standard']].map(([v, l]) =>
+      `<option value="${v}" ${(j.cvUsed || '') === v ? 'selected' : ''} ${!v ? 'disabled' : ''}>${l}</option>`).join('')}</select></label>` : ''}</div>
     ${j.nudge ? `<div class="why">${nudgeText(j.nudge)} ${j.nudge.kind === 'follow_up' ? `<button class="small" data-followed="${esc(j.id)}">I followed up</button>`
       : `<button class="small" data-noreply="${esc(j.id)}">Mark as no reply</button>`}</div>` : ''}</div>`;
 }
 function bindOutcomeButtons(after) {
   const set = (id, body) => post(`/users/${state.user}/jobs/${encodeURIComponent(id)}`, body).then(refresh).then(() => after?.());
   $$('[data-outcome]').forEach(sel => sel.onchange = guard(() => set(sel.dataset.outcome, { outcome: sel.value })));
+  $$('[data-cvused]').forEach(sel => sel.onchange = guard(() => set(sel.dataset.cvused, { cvUsed: sel.value })));
   $$('[data-followed]').forEach(b => b.onclick = guard(() => set(b.dataset.followed, { followedUp: true })));
   $$('[data-noreply]').forEach(b => b.onclick = guard(() => set(b.dataset.noreply, { outcome: 'no_reply' })));
 }
 function bindJobButtons(list) {
   bindOutcomeButtons();
-  $$('[data-mark]').forEach(b => b.onclick = guard(async () => { await post(`/users/${state.user}/jobs/${encodeURIComponent(b.dataset.id)}`, { status: b.dataset.mark }); await refresh(); }));
+  const mark = guard(async (id, body) => { await post(`/users/${state.user}/jobs/${encodeURIComponent(id)}`, body); await refresh(); });
+  $$('[data-mark]').forEach(b => b.onclick = () => mark(b.dataset.id, { status: b.dataset.mark }));
+  // A tailored CV exists: ask which one went with the application, so Results compares what was sent.
+  $$('[data-applied]').forEach(b => b.onclick = () => {
+    const box = b.parentElement, id = box.dataset.id;
+    box.innerHTML = `<span class="muted small">Which CV did you send?</span> <button class="small accent" data-cv="tailored">Tailored</button> <button class="small" data-cv="standard">Standard</button>`;
+    box.querySelectorAll('[data-cv]').forEach(c => c.onclick = () => mark(id, { status: 'submitted', cvUsed: c.dataset.cv }));
+  });
   $$('[data-review]').forEach(b => b.onclick = guard(async () => { toast('Opening the form in a browser window. Check it, click Submit, then close the tab.', 8000); await runTask('review', [b.dataset.review]); showTab('home'); }));
   $$('[data-kit]').forEach(b => b.onclick = guard(async () => { await runTask('kits', [b.dataset.kit]); toast('Making the tailored CV and cover letter (about a minute)…'); onTaskDone.push(() => showTab('jobs')); }));
   $$('[data-copy]').forEach(a => a.onclick = guard(async e => { e.preventDefault(); const j = list.find(x => x.id === a.dataset.copy); await navigator.clipboard.writeText(j.kit.letter); toast('Cover letter copied: paste it into the application.'); }));
@@ -464,7 +476,7 @@ async function renderResults() {
     </div>
     <div class="card"><h2>Follow-ups due</h2>
       ${r.nudges.length ? r.nudges.map(n => `<div class="q"><b>${esc(n.title)}</b> <span class="muted">${esc(n.company)}</span> · <a href="${esc(n.url)}" target="_blank" rel="noopener">job ad ↗</a>
-        ${outcomeRow({ id: n.id, outcome: 'waiting', nudge: n.nudge })}</div>`).join('') : '<p class="muted">Nothing to follow up right now.</p>'}</div>
+        ${outcomeRow({ ...n, outcome: 'waiting' })}</div>`).join('') : '<p class="muted">Nothing to follow up right now.</p>'}</div>
     ${table('By job site', r.bySource)}${table('By CV version', r.byCv)}${table('By fit score', r.byScore)}${table('Who applied', r.byHow)}
     <p class="help">Rates on fewer than 10 applications can swing a lot; give it a few weeks before changing your search because of them. Record outcomes on the Jobs page (Applied) or here.</p>`;
   bindOutcomeButtons(() => showTab('results'));

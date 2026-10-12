@@ -34,19 +34,25 @@ function groupBy(jobs, key, now) {
   return Object.entries(g).map(([label, js]) => ({ label, ...tally(js, now) })).sort((a, b) => b.applied - a.applied);
 }
 
+// The CV that went with the application: recorded when JobPilot filled the form or when you
+// said so on "I applied". With no tailored CV made, it can only have been the standard one.
+const cvLabel = j => j.cvUsed === 'tailored' ? 'Tailored CV' : j.cvUsed === 'standard' || !(j.kit?.tailored || j.cvPdf) ? 'Standard CV' : 'Not recorded';
+const CV_USED = ['tailored', 'standard'];
+
 const scoreBand = s => s == null ? 'Not scored' : s >= 90 ? '90+' : s >= 80 ? '80-89' : s >= 70 ? '70-79' : 'Under 70';
 
 function stats(store, now = Date.now()) {
   const applied = store.where(j => j.status === 'submitted');
-  const view = j => ({ id: j.id, title: j.title, company: j.company, url: j.url, submittedAt: j.submittedAt, nudge: nudge(j, now) });
+  const view = j => ({ id: j.id, title: j.title, company: j.company, url: j.url, submittedAt: j.submittedAt, nudge: nudge(j, now),
+    cvUsed: j.cvUsed || null, hasTailoredCv: !!(j.kit?.tailored || j.cvPdf) });
   return {
     total: tally(applied, now),
     nudges: applied.filter(j => nudge(j, now)).sort((a, b) => String(a.submittedAt).localeCompare(String(b.submittedAt))).map(view),
     bySource: groupBy(applied, j => j.source || 'other', now),
-    byCv: groupBy(applied, j => j.kit?.tailored || j.cvPdf ? 'Tailored CV' : 'Standard CV', now),
+    byCv: groupBy(applied, cvLabel, now),
     byScore: groupBy(applied, j => scoreBand(j.score), now),
     byHow: groupBy(applied, j => j.autoSubmitted ? 'Applied for you' : 'Applied by you', now)
   };
 }
 
-module.exports = { OUTCOMES, RESPONDED, FOLLOW_UP_DAYS, GIVE_UP_DAYS, nudge, stats, tally };
+module.exports = { OUTCOMES, RESPONDED, CV_USED, FOLLOW_UP_DAYS, GIVE_UP_DAYS, nudge, stats, tally, cvLabel };

@@ -20,10 +20,10 @@ test('follow-up after 10 days, suggest "no reply" after 30, nothing once you hea
 test('results group replies by source, CV version and fit score', () => {
   const u = makeUser(), s = new Store(u.paths.jobs);
   const add = (id, o) => s.add({ id, company: id, title: 'Admin', url: id, status: 'submitted', ...o });
-  add('a', { source: 'linkedin', score: 92, submittedAt: ago(5), outcome: 'interview', kit: { tailored: true } });
+  add('a', { source: 'linkedin', score: 92, submittedAt: ago(5), outcome: 'interview', kit: { tailored: true }, cvUsed: 'tailored' });
   add('b', { source: 'linkedin', score: 75, submittedAt: ago(15) });
   add('c', { source: 'greenhouse', score: 85, submittedAt: ago(45), autoSubmitted: true });
-  add('d', { source: 'greenhouse', score: 81, submittedAt: ago(20), outcome: 'rejected', cvPdf: 'x.pdf' });
+  add('d', { source: 'greenhouse', score: 81, submittedAt: ago(20), outcome: 'rejected', cvPdf: 'x.pdf', cvUsed: 'tailored' });
   s.add({ id: 'e', company: 'E', title: 'Admin', url: 'e', status: 'ready' });
   const r = stats(s, NOW);
   assert.deepStrictEqual({ ...r.total }, { applied: 4, responded: 2, interviews: 1, offers: 0, rejected: 1, noReply: 1, responseRate: 50 });
@@ -31,4 +31,12 @@ test('results group replies by source, CV version and fit score', () => {
   assert.deepStrictEqual(Object.fromEntries(r.bySource.map(x => [x.label, x.responded])), { linkedin: 1, greenhouse: 1 });
   assert.deepStrictEqual(Object.fromEntries(r.byScore.map(x => [x.label, x.applied])), { '90+': 1, '70-79': 1, '80-89': 2 });
   assert.deepStrictEqual(r.nudges.map(n => [n.id, n.nudge.kind]), [['c', 'give_up'], ['b', 'follow_up']]);
+});
+
+test('the CV sent counts as recorded; a tailored CV made but not confirmed is "Not recorded"', () => {
+  const { cvLabel } = require('../core/outcomes');
+  assert.strictEqual(cvLabel({ cvUsed: 'standard', cvPdf: 'x.pdf' }), 'Standard CV', 'you sent the standard one although a tailored one existed');
+  assert.strictEqual(cvLabel({ cvUsed: 'tailored' }), 'Tailored CV');
+  assert.strictEqual(cvLabel({ kit: { tailored: false } }), 'Standard CV', 'no tailored CV was ever made');
+  assert.strictEqual(cvLabel({ kit: { tailored: true } }), 'Not recorded');
 });

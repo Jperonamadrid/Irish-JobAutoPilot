@@ -26,14 +26,14 @@ const HELP = `JobPilot
   login [urls...]    --user ID open this person's browser to sign in to job sites by hand
   locate             --user ID find office areas for the map (jobs scored before areas were recorded)
   status             --user ID job counts
-  mark <id> <status> --user ID e.g. mark li:123 submitted (after applying by hand)
+  mark <id> <status> --user ID e.g. mark li:123 submitted --cv tailored (after applying by hand; --cv tailored | standard)
   mark <id> <outcome> --user ID after applying: replied | interview | offer | rejected | no_reply | waiting
   results            --user ID replies, interviews and follow-ups due`;
 
 const args = process.argv.slice(2);
 const cmd = args[0];
 const opt = f => { const i = args.indexOf(f); return i > -1 ? args[i + 1] : undefined; };
-const positional = args.slice(1).filter((a, i, all) => !a.startsWith('--') && !['--user', '--limit'].includes(all[i - 1]));
+const positional = args.slice(1).filter((a, i, all) => !a.startsWith('--') && !['--user', '--limit', '--cv'].includes(all[i - 1]));
 
 function userFromArgs() {
   const id = opt('--user') || (listUsers().length === 1 ? listUsers()[0].id : null);
@@ -115,7 +115,9 @@ function teeLog(user) {
         s.update(id, { outcome: status, outcomeAt: new Date().toISOString() }, 'marked by hand'); s.save();
         log(`${id} outcome -> ${status}`); break;
       }
-      s.update(id, { status, ...(status === 'submitted' ? { submittedAt: new Date().toISOString() } : {}) }, 'marked by hand'); s.save();
+      const cv = opt('--cv');
+      if (cv && !['tailored', 'standard'].includes(cv)) throw new Error('--cv must be tailored or standard');
+      s.update(id, { status, ...(status === 'submitted' ? { submittedAt: new Date().toISOString(), ...(cv ? { cvUsed: cv } : {}) } : {}) }, 'marked by hand'); s.save();
       log(`${id} -> ${status}`); break;
     }
     default: console.log(HELP); process.exitCode = 1;

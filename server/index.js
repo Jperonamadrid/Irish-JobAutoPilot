@@ -94,7 +94,7 @@ function userSummary(u) {
 const jobView = j => ({ id: j.id, title: j.title, company: j.company, location: j.location, url: j.url, source: j.source, ats: j.ats,
   status: j.status, score: j.score, reason: j.reason, postedAt: j.postedAt, firstSeen: j.firstSeen, submittedAt: j.submittedAt,
   screenshot: j.screenshot, cvPdf: j.cvPdf, error: j.error, problems: fillProblems(j), pending: j.pending || [], kit: j.kit || null,
-  autoSubmitted: !!j.autoSubmitted, submittedShot: j.submittedShot, outcome: j.outcome || null, followedUpAt: j.followedUpAt || null, nudge: outcomes.nudge(j), canFill: ['greenhouse', 'ashby', 'lever', 'workable'].includes(j.ats) });
+  autoSubmitted: !!j.autoSubmitted, submittedShot: j.submittedShot, outcome: j.outcome || null, cvUsed: j.cvUsed || null, hasTailoredCv: !!(j.kit?.tailored || j.cvPdf), followedUpAt: j.followedUpAt || null, nudge: outcomes.nudge(j), canFill: ['greenhouse', 'ashby', 'lever', 'workable'].includes(j.ats) });
 
 // ---- routes ------------------------------------------------------------------------------------------
 async function api(req, res, url) {
@@ -176,17 +176,18 @@ async function api(req, res, url) {
   if (what === 'jobs' && parts[3] && m === 'POST') {
     const b = await json(req), s = new Store(u.paths.jobs), id = decodeURIComponent(parts[3]);
     if (!s.get(id)) return send(res, 404, { error: 'no such job' });
-    // After applying: what happened next, or that you sent a follow-up.
-    if (b.outcome !== undefined || b.followedUp) {
+    if (b.cvUsed !== undefined && !outcomes.CV_USED.includes(b.cvUsed)) return send(res, 400, { error: 'bad CV choice' });
+    // After applying: what happened next, which CV you sent, or that you sent a follow-up.
+    if (!b.status && (b.outcome !== undefined || b.followedUp || b.cvUsed)) {
       if (s.get(id).status !== 'submitted') return send(res, 400, { error: 'Mark the job as applied first' });
       if (b.outcome !== undefined && !outcomes.OUTCOMES[b.outcome]) return send(res, 400, { error: 'bad outcome' });
       const now = new Date().toISOString();
-      s.update(id, b.followedUp ? { followedUpAt: now } : { outcome: b.outcome, outcomeAt: now }, 'changed in the app'); s.save();
+      s.update(id, b.followedUp ? { followedUpAt: now } : b.cvUsed ? { cvUsed: b.cvUsed } : { outcome: b.outcome, outcomeAt: now }, 'changed in the app'); s.save();
       return send(res, 200, jobView(s.get(id)));
     }
     const allowed = ['submitted', 'skipped', 'ready', 'manual'];
     if (!allowed.includes(b.status)) return send(res, 400, { error: 'bad status' });
-    s.update(id, { status: b.status, ...(b.status === 'submitted' ? { submittedAt: new Date().toISOString() } : {}) }, 'changed in the app'); s.save();
+    s.update(id, { status: b.status, ...(b.status === 'submitted' ? { submittedAt: new Date().toISOString(), ...(b.cvUsed ? { cvUsed: b.cvUsed } : {}) } : {}) }, 'changed in the app'); s.save();
     return send(res, 200, jobView(s.get(id)));
   }
   if (what === 'titles' && m === 'POST') {
