@@ -1,5 +1,6 @@
 // Job sources for people searching in Ireland. Company boards were verified by calling each
-// board API on 2026-09-28. Boards found automatically at runtime are cached in data/boards.json.
+// board API on 2026-09-28 (SmartRecruiters and Personio boards on 2026-10-12). Boards found
+// automatically at runtime are cached in data/boards.json.
 module.exports = {
   "id": "ireland",
   "label": "Ireland (Dublin and remote EMEA)",
@@ -17,6 +18,7 @@ module.exports = {
   ],
   "stepstoneArea": "in-dublin",
   "names": {
+    "teamwork": "Teamwork",
     "openai": "OpenAI",
     "clickup": "ClickUp",
     "wayflyer": "Wayflyer",
@@ -163,6 +165,15 @@ module.exports = {
     ],
     "workable": [
       "davy"
+    ],
+    "smartrecruiters": [
+      "Version1",
+      "ServiceNow",
+      "Primark"
+    ],
+    "recruitee": [],
+    "personio": [
+      "teamwork"
     ],
     "workday": [
       {

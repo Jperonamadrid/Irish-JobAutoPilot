@@ -8,8 +8,23 @@
 // it merges this copy's changes, field by field, into what is on disk now.
 const { readJson, writeJson, norm } = require('./util');
 
-const fingerprint = (company, title) =>
-  norm(company).replace(/ (inc|ltd|limited|llc|plc|group|ireland|technologies|labs)\b/g, '') + '|' + norm(title);
+// Same company + same job, however each site words it: "Sr. Data Analyst (m/f/d) - Dublin" and
+// "Senior Data Analyst" match. Abbreviations are expanded; gender tags, and suffixes or brackets that
+// only name a place, a work mode or the company, are dropped. "Engineer - Payments" stays distinct.
+const ABBREV = { sr: 'senior', snr: 'senior', jr: 'junior', jnr: 'junior', mgr: 'manager', mngr: 'manager', eng: 'engineer', engr: 'engineer',
+  assoc: 'associate', asst: 'assistant', admin: 'administrator', exec: 'executive', dev: 'developer', rep: 'representative', coord: 'coordinator', spec: 'specialist' };
+const PLACE = new Set(['dublin', 'cork', 'galway', 'limerick', 'waterford', 'ireland', 'remote', 'hybrid', 'onsite', 'on', 'site', 'office', 'emea', 'europe',
+  'uk', 'eu', 'full', 'part', 'time', 'permanent', 'contract', 'temporary', 'fixed', 'term', 'county', 'co', 'based', 'in', 'or', 'and', 'any']);
+const companyWords = company => norm(company).replace(/ (inc|ltd|limited|llc|plc|group|ireland|technologies|labs)\b/g, '').trim();
+function titlePrint(title, company = '') {
+  const co = companyWords(company);
+  const noise = text => { const n = norm(text); return !n || n === co || n.split(' ').every(w => PLACE.has(w)); };
+  let t = String(title || '').replace(/\((?:[mfwdx]\s*\/\s*)+[mfwdx]\)|\b[mfwd]\/[mfwd](\/[mfwdx])?\b/gi, ' ');   // (m/f/d), m/w/d
+  for (let m; (m = t.match(/^(.*\S)\s+[-–|]\s+([^-–|]*)$/)) && noise(m[2]);) t = m[1];          // "... - Dublin", "... | Acme"
+  t = t.replace(/\(([^)]*)\)/g, (all, inner) => noise(inner) ? ' ' : ` ${inner} `);
+  return norm(t).split(' ').filter(w => w !== 'and').map(w => ABBREV[w] || w).join(' ');
+}
+const fingerprint = (company, title) => companyWords(company) + '|' + titlePrint(title, company);
 const same = (a, b) => a === b || (!!a && !!b && typeof a === 'object' && typeof b === 'object' && JSON.stringify(a) === JSON.stringify(b));
 
 class Store {
@@ -82,4 +97,4 @@ class Store {
   }
 }
 
-module.exports = { Store, fingerprint };
+module.exports = { Store, fingerprint, titlePrint };

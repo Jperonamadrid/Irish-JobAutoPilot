@@ -3,7 +3,7 @@
 A job-search assistant that runs on your own computer. Give it your CV and it:
 
 1. **Reads your CV** and suggests job titles you could do. A **career quiz** suggests better-paid options too, checked against live job ads near you.
-2. **Scans the job market** (LinkedIn, IrishJobs.ie, Jobs.ie, CareerJet.ie, publicjobs.ie, JobsIreland.ie, Workable, remote feeds and 100+ employers' career pages) and shows a **market report**: demand per title, stated pay, who is hiring, and where (map).
+2. **Scans the job market** (LinkedIn, IrishJobs.ie, Jobs.ie, CareerJet.ie, publicjobs.ie, JobsIreland.ie, RecruitIreland.com, Workable, remote feeds (Jobicy, Remote OK) and 100+ employers' career pages on Greenhouse, Ashby, Lever, Workable, SmartRecruiters, Recruitee, Personio and Workday, plus any company you choose to follow) and shows a **market report**: demand per title, stated pay, who is hiring, and where (map).
 3. **Recommends jobs** with the reason each one fits, and makes a **tailored CV** (with a list of exactly what changed) and a **cover letter** for each.
 4. Works in one of two modes, which you choose:
    - **Help me apply** (default): you get the link, the reasons, the CV and the letter, and you apply. It can also fill in a form for you to check and submit.
@@ -34,13 +34,15 @@ Check your setup any time with `npm run doctor`.
 
 The first time, a guided setup takes you through six steps: **upload your CV** → **check your details** → **career quiz** (optional) → **pick job titles** (suggestions plus your own) → **choose a mode** → **first market scan** (about 10-15 minutes).
 
-After that, press **Daily run** on Home. It finds new jobs, scores them, makes CVs and letters for the best ones, and (in *Apply for me* mode) applies to the strongest fits. Then:
+After that, press **Daily run** on Home, or let it start by itself every weekday morning (Profile → What you want → Automatic daily run; JobPilot needs to be open, and you get a notification when it finishes). It finds new jobs, scores them, makes CVs and letters for the best ones, and (in *Apply for me* mode) applies to the strongest fits. Then:
 
 - **Jobs** lists your recommended jobs, with the link, why each fits, the tailored CV (PDF and Word), the cover letter, and what was changed.
 - **Market** shows demand, stated pay, who is hiring, and suggested titles to add.
 - **Map** shows where the jobs are.
 - **Careers** lets you retake the quiz.
-- **Results** tracks what happened after you applied: record replies, interviews, offers and rejections, get a reminder to follow up after 10 days with no reply, and see which job sites, CV versions and fit scores actually get you answers.
+- **Not for me** asks for a one-tap reason (too senior, wrong location, pay...). Scoring learns from those and from the jobs you apply to.
+- **Companies you'd love to work for** (Profile → What you want): paste a careers-page link or a company name, and that company's own job board is checked on every run.
+- **Results** tracks what happened after you applied: record replies, interviews, offers and rejections, get a reminder to follow up after 10 days with no reply, and see which job sites, CV versions and fit scores actually get you answers. A follow-up email is ready to copy, and jobs marked *Interview* get **interview prep**: likely questions with answers built from your real CV, questions to ask them, and a 30-second pitch.
 - **Questions** shows anything a form asked that your profile could not answer. Answer it once and it is reused everywhere.
 
 Several people can use one install: each has their own profile, CV, answers, job list and browser logins (*+ Person* in the top bar).
@@ -70,10 +72,12 @@ AI calls go through your Claude Code plan. Typical usage measured at API prices:
 ```
 cli.js / server/index.js     command line and local web app (tasks run as child processes)
 core/intake.js               runs every source, de-duplicates, stores new jobs
-core/sources/                boards.js (Greenhouse, Ashby, Lever, Workable, Workday), feeds.js (LinkedIn,
-                             Workable search, Jobicy, Jooble), irish.js (CareerJet, publicjobs, JobsIreland),
-                             stepstone.js (IrishJobs, Jobs.ie)
-core/discover.js             finds a company's own job board from jobs seen elsewhere
+core/sources/                boards.js (Greenhouse, Ashby, Lever, Workable, Workday, SmartRecruiters, Recruitee,
+                             Personio), feeds.js (LinkedIn, Workable search, Jobicy, Remote OK, Jooble), irish.js
+                             (CareerJet, publicjobs, JobsIreland, RecruitIreland), stepstone.js (IrishJobs, Jobs.ie)
+core/discover.js             finds a company's own job board from jobs seen elsewhere; companies you follow
+core/schedule.js             automatic daily run
+core/prep.js                 interview prep notes
 core/score.js                AI scoring in batches (cheap model)
 core/answers.js              form answers: profile → saved answers → rules → AI → ask you
 core/cv.js                   CV rendering (PDF + Word), per-job tailoring and the fact check

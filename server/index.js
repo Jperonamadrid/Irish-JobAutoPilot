@@ -11,6 +11,7 @@ const { Store } = require('../core/store');
 const { openQuestions, answer, fillProblems } = require('../core/questions');
 const { composeRules } = require('../core/rules');
 const outcomes = require('../core/outcomes');
+const schedule = require('../core/schedule');
 
 const PORT = +process.env.PORT || 4317;
 const WEB = path.join(ROOT, 'web');
@@ -34,7 +35,7 @@ const TASKS = {
   onboard: { label: 'Reading your CV' }, search: { label: 'Searching for jobs' }, score: { label: 'Scoring jobs' },
   find: { label: 'Finding and scoring jobs' }, prepare: { label: 'Filling in application forms' }, run: { label: 'Daily run' },
   scan: { label: 'Scanning the job market' }, kits: { label: 'Making tailored CVs and cover letters' }, market: { label: 'Building the market report' },
-  careers: { label: 'Exploring career options' }, review: { label: 'Review and submit' }, login: { label: 'Signing in to job sites' }
+  careers: { label: 'Exploring career options' }, prep: { label: 'Preparing for your interview' }, review: { label: 'Review and submit' }, login: { label: 'Signing in to job sites' }
 };
 function startTask(userId, name, args = []) {
   if (task) throw Object.assign(new Error(`"${TASKS[task.name].label}" is still running. Wait for it or press Stop.`), { status: 409 });
@@ -94,7 +95,7 @@ function userSummary(u) {
 const jobView = j => ({ id: j.id, title: j.title, company: j.company, location: j.location, url: j.url, source: j.source, ats: j.ats,
   status: j.status, score: j.score, reason: j.reason, postedAt: j.postedAt, firstSeen: j.firstSeen, submittedAt: j.submittedAt,
   screenshot: j.screenshot, cvPdf: j.cvPdf, error: j.error, problems: fillProblems(j), pending: j.pending || [], kit: j.kit || null,
-  autoSubmitted: !!j.autoSubmitted, submittedShot: j.submittedShot, outcome: j.outcome || null, cvUsed: j.cvUsed || null, hasTailoredCv: !!(j.kit?.tailored || j.cvPdf), followedUpAt: j.followedUpAt || null, nudge: outcomes.nudge(j), canFill: ['greenhouse', 'ashby', 'lever', 'workable'].includes(j.ats) });
+  prep: j.prep || null, followed: !!j.followed, verdict: j.verdict || null, autoSubmitted: !!j.autoSubmitted, submittedShot: j.submittedShot, outcome: j.outcome || null, cvUsed: j.cvUsed || null, hasTailoredCv: !!(j.kit?.tailored || j.cvPdf), followedUpAt: j.followedUpAt || null, nudge: outcomes.nudge(j), canFill: ['greenhouse', 'ashby', 'lever', 'workable'].includes(j.ats) });
 
 // ---- routes ------------------------------------------------------------------------------------------
 async function api(req, res, url) {
@@ -146,8 +147,10 @@ async function api(req, res, url) {
     if (b.joobleKey === '••••') delete b.joobleKey;
     // Arrays replace rather than merge.
     const cur = readJson(u.paths.settings, {});
-    for (const k of ['search', 'apply', 'sources', 'rules', 'auto']) if (b[k]) cur[k] = { ...(cur[k] || {}), ...b[k] };
+    delete b.schedule?.lastRun;
+    for (const k of ['search', 'apply', 'sources', 'rules', 'auto', 'schedule']) if (b[k]) cur[k] = { ...(cur[k] || {}), ...b[k] };
     for (const k of ['joobleKey', 'preset', 'mode', 'setupDone']) if (b[k] !== undefined) cur[k] = b[k];
+    if (b.schedule) cur.schedule = schedule.onSave({ ...u.settings, ...cur, schedule: { ...u.settings.schedule, ...cur.schedule } });
     writeJson(u.paths.settings, cur); u.reload(); composeRules(u);
     return send(res, 200, userSummary(u));
   }
@@ -187,7 +190,12 @@ async function api(req, res, url) {
     }
     const allowed = ['submitted', 'skipped', 'ready', 'manual'];
     if (!allowed.includes(b.status)) return send(res, 400, { error: 'bad status' });
-    s.update(id, { status: b.status, ...(b.status === 'submitted' ? { submittedAt: new Date().toISOString(), ...(b.cvUsed ? { cvUsed: b.cvUsed } : {}) } : {}) }, 'changed in the app'); s.save();
+    // Your call on the job, remembered so scoring learns what you want (see score.js decisions()).
+    const at = new Date().toISOString(), was = s.get(id).status;
+    const verdict = b.status === 'skipped' ? { verdict: 'no', reason: String(b.reason || '').trim().slice(0, 120), at }
+      : b.status === 'submitted' || (b.status === 'ready' && was === 'skipped') ? { verdict: 'yes', at } : undefined;
+    s.update(id, { status: b.status, ...(verdict ? { verdict } : {}),
+      ...(b.status === 'submitted' ? { submittedAt: at, ...(b.cvUsed ? { cvUsed: b.cvUsed } : {}) } : {}) }, 'changed in the app'); s.save();
     return send(res, 200, jobView(s.get(id)));
   }
   if (what === 'titles' && m === 'POST') {
@@ -256,6 +264,19 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
+// Automatic daily runs: once a minute, start the first one that is due (one task at a time, so
+// several people's runs simply go one after another).
+function startDueRuns() {
+  if (task) return;
+  for (const { id } of listUsers()) {
+    const u = new User(id);
+    if (!schedule.isDue(u.settings)) continue;
+    u.saveSettings({ schedule: { lastRun: schedule.localDate(new Date()) } });
+    try { startTask(id, 'run'); emit(`(started automatically: ${u.profile.fullName || id}'s daily run)`); } catch {}
+    return;
+  }
+}
+
 function openBrowser(link) {
   if (process.argv.includes('--no-open')) return;
   const opener = process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'cmd' : 'xdg-open';
@@ -275,6 +296,8 @@ if (require.main === module) {
   server.listen(PORT, '127.0.0.1', () => {
     console.log(`JobPilot is running at ${link}  (keep this window open; press Ctrl+C to stop)`);
     openBrowser(link);
+    setTimeout(startDueRuns, 20000);   // catch up shortly after opening (gives the page time to load)
+    setInterval(startDueRuns, 60000);
   });
 }
 

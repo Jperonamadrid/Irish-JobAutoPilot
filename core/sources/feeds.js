@@ -1,4 +1,5 @@
-// Search-based sources: LinkedIn (public signed-out search), Workable search, Jobicy (remote), Jooble.
+// Search-based sources: LinkedIn (public signed-out search), Workable search, Jobicy and Remote OK
+// (remote), Jooble.
 // None of these can be auto-filled directly; their jobs go to the manual list unless the
 // company's own board is found (see discover.js).
 const { log, getJson, getText, postJson, pool, htmlToText, decode, sleep } = require('../util');
@@ -91,4 +92,19 @@ async function jooble({ key, titles, wanted, location, days }) {
   return out;
 }
 
-module.exports = { linkedin, workableSearch, jobicy, jooble, parseLinkedInCards };
+// Remote OK: one public feed of recent remote jobs. Its terms ask for a link back and the source
+// named, which every job here has (url + source). Many are restricted to a region; scoring checks.
+// Remote OK sends some text UTF-8 encoded twice ("MÃ©xico"); undo that when it shows.
+const unmangle = s => /Ã.|Â./.test(s) ? Buffer.from(s, 'latin1').toString('utf8') : s;
+function mapRemoteOk(list, { wanted }) {
+  return (Array.isArray(list) ? list : []).filter(x => x?.id && x.position)
+    .map(x => ({ ...x, position: unmangle(decode(x.position)).trim(), company: unmangle(decode(x.company)), location: unmangle(decode(x.location || '')).trim() }))
+    .filter(x => wanted(x.position, ['remote ' + x.location]))
+    .map(x => ({ id: `remoteok:${x.id}`, source: 'remoteok', ats: 'external', company: x.company || 'Unknown', title: x.position,
+      location: `Remote${x.location ? ` (${x.location})` : ''}`, url: x.url, postedAt: x.date, description: clip(htmlToText(x.description)) }));
+}
+async function remoteok({ wanted }) {
+  return mapRemoteOk(await getJson('https://remoteok.com/api', { headers: UA }), { wanted });
+}
+
+module.exports = { linkedin, workableSearch, jobicy, jooble, remoteok, mapRemoteOk, parseLinkedInCards };

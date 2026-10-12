@@ -8,7 +8,7 @@ const irish = require('./sources/irish');
 const boards = require('./sources/boards');
 const feeds = require('./sources/feeds');
 const { stepstone } = require('./sources/stepstone');
-const { discoverBoards } = require('./discover');
+const { discoverBoards, followed } = require('./discover');
 
 const AUTO_FILL = new Set(['greenhouse', 'ashby', 'lever', 'workable']);
 
@@ -37,34 +37,41 @@ async function intake(user, store, { days: daysOverride } = {}) {
       return [...a, ...b];
     } finally { await ctx.close().catch(() => {}); }
   };
-  const [li, jb, wk, jc, ss, cj, pj] = await Promise.all([
+  const [li, jb, wk, jc, ss, cj, pj, ri, ro] = await Promise.all([
     on.linkedin ? feeds.linkedin({ titles, wanted, location: liLocation, days }).catch(fail('LinkedIn')) : off(),
     on.jooble ? feeds.jooble({ key: settings.joobleKey, titles, wanted, location: `${s.city}, ${preset.country}`, days }).catch(fail('Jooble')) : off(),
     on.workable ? feeds.workableSearch({ titles, wanted, country: preset.country }).catch(fail('Workable search')) : off(),
     on.jobicy && s.remote !== 'none' ? feeds.jobicy({ wanted, country: preset.country }).catch(fail('Jobicy')) : off(),
     browserSources().catch(fail('browser sources')),
     on.careerjet ? irish.careerjet({ titles, wanted, city: s.city, days }).catch(fail('CareerJet')) : off(),
-    on.publicjobs ? irish.publicjobs({ wanted, days }).catch(fail('publicjobs.ie')) : off()
+    on.publicjobs ? irish.publicjobs({ wanted, days }).catch(fail('publicjobs.ie')) : off(),
+    on.recruitireland ? irish.recruitireland({ titles, wanted, days }).catch(fail('RecruitIreland')) : off(),
+    on.remoteok && s.remote !== 'none' ? feeds.remoteok({ wanted }).catch(fail('Remote OK')) : off()
   ]);
-  const searchJobs = [...li, ...jb, ...wk, ...jc, ...ss, ...cj, ...pj];
+  const searchJobs = [li, jb, wk, jc, ss, cj, pj, ri, ro].flat();
 
-  const list = { greenhouse: [...preset.boards.greenhouse], ashby: [...preset.boards.ashby], lever: [...preset.boards.lever], workable: [...preset.boards.workable] };
-  const known = new Set(Object.values(list).flat());
+  const BOARDS = ['greenhouse', 'ashby', 'lever', 'workable', 'smartrecruiters', 'recruitee', 'personio'];
+  const list = Object.fromEntries(BOARDS.map(a => [a, on.boards ? [...(preset.boards[a] || [])] : []]));
+  const workdays = on.boards && on.workday ? [...preset.boards.workday] : [];
+  const known = new Set(Object.values(list).flat().map(b => b.toLowerCase()));
   const found = on.boards ? { ...preset.discovered, ...await discoverBoards(searchJobs, known) } : {};
   for (const [slug, { ats, company }] of Object.entries(found)) {
-    if (known.has(slug) || !list[ats]) continue;
-    list[ats].push(slug); known.add(slug);
+    if (known.has(slug.toLowerCase()) || !list[ats]) continue;
+    list[ats].push(slug); known.add(slug.toLowerCase());
     names[slug] ||= company;
   }
+  // Companies the person follows are fetched on every run, even with company boards switched off.
+  const follows = await followed(s.followCompanies || []).catch(e => (log('could not look up followed companies:', e.message), []));
+  const followedBoards = new Set();
+  for (const f of follows) {
+    if (f.workday) { workdays.push(f.workday); followedBoards.add(f.workday.tenant); continue; }
+    followedBoards.add(f.slug.toLowerCase());
+    if (!known.has(f.slug.toLowerCase())) { list[f.ats].push(f.slug); known.add(f.slug.toLowerCase()); }
+  }
 
-  const tasks = on.boards ? [
-    ...list.greenhouse.map(b => () => boards.greenhouse(b, ctx)),
-    ...list.ashby.map(b => () => boards.ashby(b, ctx)),
-    ...list.lever.map(b => () => boards.lever(b, ctx)),
-    ...list.workable.map(b => () => boards.workable(b, ctx)),
-    ...(on.workday ? preset.boards.workday.map(w => () => boards.workday(w, ctx)) : [])
-  ] : [];
+  const tasks = [...BOARDS.flatMap(a => list[a].map(b => () => boards[a](b, ctx))), ...workdays.map(w => () => boards.workday(w, ctx))];
   const boardJobs = (await pool(tasks, 8, f => f())).flat().filter(Boolean);
+  for (const j of boardJobs) if (followedBoards.has(String(j.board).toLowerCase())) j.followed = true;
 
   const r = merge(user, store, [...boardJobs, ...searchJobs]);
   store.save();

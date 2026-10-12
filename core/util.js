@@ -53,8 +53,10 @@ async function pool(items, n, fn) {
   return out;
 }
 
+const ENTITIES = { bull: '•', hellip: '…', ndash: '–', mdash: '—', lsquo: "'", ldquo: '"', rdquo: '"', euro: '€', pound: '£', middot: '·', eacute: 'é', aacute: 'á', iacute: 'í', oacute: 'ó', uacute: 'ú' };
 const decode = s => String(s ?? '').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
-  .replace(/&quot;/g, '"').replace(/&#39;|&#x27;|&rsquo;/g, "'").replace(/&#(\d+);/g, (_, n) => String.fromCharCode(n));
+  .replace(/&quot;/g, '"').replace(/&#39;|&#x27;|&rsquo;/g, "'").replace(/&#(\d+);/g, (_, n) => String.fromCharCode(n))
+  .replace(/&#x([0-9a-f]+);/gi, (_, n) => String.fromCodePoint(parseInt(n, 16))).replace(/&([a-z]+);/g, (m, n) => ENTITIES[n] ?? m);
 const htmlToText = h => decode(decode(String(h || '')).replace(/<(br|\/p|\/li|\/h\d|\/div)[^>]*>/gi, '\n')
   .replace(/<li[^>]*>/gi, '- ').replace(/<[^>]+>/g, '')).replace(/[ \t]+/g, ' ').replace(/\n\s*\n+/g, '\n').trim();
 // Lowercase alphanumerics only: used for company/title fingerprints and question matching.
