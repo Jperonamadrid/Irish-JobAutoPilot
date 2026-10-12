@@ -147,6 +147,18 @@ async function api(req, res, url) {
     s.update(id, { status: b.status, ...(b.status === 'submitted' ? { submittedAt: new Date().toISOString() } : {}) }, 'changed in the app'); s.save();
     return send(res, 200, jobView(s.get(id)));
   }
+  if (what === 'map') {
+    // Jobs worth seeing (not skipped/duplicates), with a rough location from core/geo.js.
+    const { locate } = require('../core/geo');
+    const hide = new Set(['skipped', 'duplicate', 'closed', 'excluded', 'new']);
+    const out = { placed: [], remote: [], unknown: [] };
+    for (const j of new Store(u.paths.jobs).all()) {
+      if (hide.has(j.status)) continue;
+      const g = locate(j), v = { id: j.id, title: j.title, company: j.company, score: j.score, status: j.status, url: j.url, location: j.location };
+      if (!g) out.unknown.push(v); else if (g.precision === 'remote') out.remote.push(v); else out.placed.push({ ...v, ...g });
+    }
+    return send(res, 200, out);
+  }
   if (what === 'questions') {
     const s = new Store(u.paths.jobs);
     if (m === 'GET') return send(res, 200, openQuestions(s));

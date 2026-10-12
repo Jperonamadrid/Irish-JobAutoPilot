@@ -19,6 +19,7 @@ const HELP = `JobPilot
   run                --user ID find + prepare (the daily run)
   review [ids...]    --user ID open prepared applications so YOU can check and submit them
   login [urls...]    --user ID open this person's browser to sign in to job sites by hand
+  locate             --user ID find office areas for the map (jobs scored before areas were recorded)
   status             --user ID job counts
   mark <id> <status> --user ID e.g. mark li:123 submitted (after applying by hand)`;
 
@@ -75,6 +76,7 @@ function teeLog(user) {
       log(`done. Prepared and waiting for your review: ${c.ready_to_submit || 0}. Need your answers: ${c.needs_input || 0}. To apply by hand: ${c.manual || 0}.`);
       break;
     }
+    case 'locate': await require('./core/score').locateAreas(user, store()); break;
     case 'review': await require('./core/apply').review(user, store(), { ids: positional }); break;
     case 'login': await require('./core/login').login(user, positional); break;
     case 'status': console.table(store().counts()); break;

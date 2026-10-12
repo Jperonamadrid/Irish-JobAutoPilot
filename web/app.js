@@ -55,6 +55,7 @@ function showTab(t) {
   $$('#tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === t));
   $$('.view').forEach(v => v.id !== 'welcome' && v.classList.toggle('hide', v.id !== t));
   if (t === 'jobs') renderJobs(); if (t === 'questions') renderQuestions(); if (t === 'profile') renderStep();
+  if (t === 'map') renderMap().catch(e => toast(e.message));
 }
 $$('#tabs button').forEach(b => b.onclick = () => showTab(b.dataset.tab));
 
@@ -145,6 +146,55 @@ async function renderJobs() {
   }));
 }
 $('#jobSearch').oninput = () => renderJobs();
+
+// ---- map ---------------------------------------------------------------------------------------------------
+const MAP_COLORS = { ready_to_submit: '#137a4b', needs_input: '#c27c0e', manual: '#7c3aed', ready: '#1d4ed8', submitted: '#64748b', failed: '#b42318' };
+const MAP_FILTERS = [['', 'All open'], ['ready_to_submit', 'Ready to submit'], ['needs_input', 'Need answers'], ['manual', 'Apply by hand'], ['ready', 'Waiting'], ['submitted', 'Submitted']];
+let leafletMap, markerLayer;
+// Spread jobs that share one area centre in a small circle so each can be clicked.
+const hash = s => [...s].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7);
+function spread(p, i, n) {
+  if (n <= 1) return [p.lat, p.lng];
+  const r = (p.precision === 'city' ? 0.012 : 0.0035) * Math.sqrt(n / 6 + 0.5), a = (2 * Math.PI * i) / n + (hash(p.label) % 100) / 50;
+  return [p.lat + r * Math.sin(a), p.lng + r * 1.6 * Math.cos(a)];
+}
+async function renderMap() {
+  if (typeof L === 'undefined') { $('#leaflet').innerHTML = '<p class="card">The map needs an internet connection (map images come from OpenStreetMap).</p>'; return; }
+  state.mapFilter ??= '';
+  $('#mapFilters').innerHTML = MAP_FILTERS.map(([k, l]) => `<span class="chip ${state.mapFilter === k ? 'on' : ''}" data-mf="${k}">${k ? `<span class="dot" style="background:${MAP_COLORS[k]}"></span>` : ''}${l}</span>`).join('');
+  $$('#mapFilters .chip').forEach(c => c.onclick = () => { state.mapFilter = c.dataset.mf; renderMap(); });
+  const d = await api(`/users/${state.user}/map`);
+  const keep = j => !state.mapFilter || j.status === state.mapFilter;
+  const placed = d.placed.filter(keep), remote = d.remote.filter(keep), unknown = d.unknown.filter(keep);
+  if (!leafletMap) {
+    leafletMap = L.map('leaflet').setView([53.35, -6.26], 11);
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 18, attribution: '&copy; OpenStreetMap contributors' }).addTo(leafletMap);
+    markerLayer = L.layerGroup().addTo(leafletMap);
+  }
+  setTimeout(() => leafletMap.invalidateSize(), 50);
+  markerLayer.clearLayers();
+  const groups = {}, cities = {};
+  for (const j of placed) ((j.precision === 'city' ? cities : groups)[`${j.lat},${j.lng}`] ||= []).push(j);
+  // Jobs where only the city is known: one labelled bubble per city that lists them, not a pile of dots.
+  for (const g of Object.values(cities)) {
+    const n = g.length, size = Math.min(70, 30 + Math.sqrt(n) * 5);
+    const icon = L.divIcon({ className: '', iconSize: [size, size], html: `<div class="bubble" style="width:${size}px;height:${size}px">${n}</div>` });
+    L.marker([g[0].lat, g[0].lng], { icon }).bindPopup(`<b>${n} job${n > 1 ? 's' : ''} · ${esc(g[0].label)}</b><div class="plist">${g.sort((a, b) => (b.score || 0) - (a.score || 0))
+      .map(j => `<div><span class="dot" style="background:${MAP_COLORS[j.status] || '#1d4ed8'}"></span><a href="${esc(j.url)}" target="_blank" rel="noopener">${esc(j.title)}</a> <span style="color:#6b7280">${esc(j.company)} · ${j.score ?? '–'}</span></div>`).join('')}</div>`, { maxWidth: 360 })
+      .addTo(markerLayer);
+  }
+  for (const g of Object.values(groups)) g.forEach((j, i) => {
+    const m = L.circleMarker(spread(j, i, g.length), { radius: 8, weight: 2, color: '#fff', fillColor: MAP_COLORS[j.status] || '#1d4ed8', fillOpacity: j.precision === 'city' ? 0.55 : 0.95 });
+    m.bindPopup(`<b>${esc(j.title)}</b><br>${esc(j.company)}<br>Score ${j.score ?? '–'} · ${STATUS_LABEL[j.status] || j.status}<br><span style="color:#6b7280">${esc(j.label)}</span><br><a href="${esc(j.url)}" target="_blank" rel="noopener">Job posting ↗</a>`);
+    m.addTo(markerLayer);
+  });
+  const inDublin = placed.filter(j => Math.abs(j.lat - 53.35) < 0.3 && Math.abs(j.lng + 6.26) < 0.45);
+  const exact = placed.filter(j => j.precision === 'area').length;
+  $('#mapNote').textContent = `${placed.length} jobs on the map (${inDublin.length} in the Dublin area): ${exact} with a known area, ${placed.length - exact} where the posting only names the city (numbered bubbles)`;
+  const item = j => `<div class="it"><span class="dot" style="background:${MAP_COLORS[j.status] || '#1d4ed8'}"></span><a href="${esc(j.url)}" target="_blank" rel="noopener">${esc(j.title)}</a><br><span class="muted">${esc(j.company)} · ${j.score ?? '–'}</span></div>`;
+  $('#mapSide').innerHTML = `<h3>Remote (${remote.length})</h3>${remote.map(item).join('') || '<p class="muted">None</p>'}
+    ${unknown.length ? `<h3>Location unclear (${unknown.length})</h3>${unknown.map(item).join('')}` : ''}`;
+}
 
 // ---- questions -------------------------------------------------------------------------------------------
 async function renderQuestions() {

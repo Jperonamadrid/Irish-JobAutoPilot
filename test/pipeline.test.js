@@ -27,7 +27,7 @@ test('scoring sets ready/manual/skipped from score, threshold and dealbreakers',
   const u = makeUser(), s = new Store(u.paths.jobs);
   merge(u, s, [{ id: 'gh:a:1', ats: 'greenhouse', company: 'A', title: 'Admin 1', url: '1' }, { id: 'li:2', ats: 'external', company: 'B', title: 'Admin 2', url: '2' },
     { id: 'gh:c:3', ats: 'greenhouse', company: 'C', title: 'Admin 3', url: '3' }, { id: 'gh:d:4', ats: 'greenhouse', company: 'D', title: 'Admin 4', url: '4' }]);
-  llm.setAsk(async () => ({ results: [{ id: 'gh:a:1', score: 85, dealbreaker: false, reason: 'fit' }, { id: 'li:2', score: 80, dealbreaker: false, reason: 'fit' },
+  llm.setAsk(async () => ({ results: [{ id: 'gh:a:1', score: 85, dealbreaker: false, reason: 'fit', area: 'Sandyford' }, { id: 'li:2', score: 80, dealbreaker: false, reason: 'fit' },
     { id: 'gh:c:3', score: 60, dealbreaker: false, reason: 'weak' }, { id: 'gh:d:4', score: 95, dealbreaker: true, reason: 'salary' }] }));
   await score(u, s);
   llm.setAsk(null);

@@ -11,11 +11,12 @@ const SYSTEM = `You screen job postings for one candidate. Score each job 0-100 
 Judge on the actual duties and requirements, not just the title. Follow the candidate's own rules and scoring guidance exactly where they apply (for example, if they say lateral moves or step-downs are fine, do not mark those down).
 Missing one named tool the candidate could learn quickly is a small deduction, not a large one. Recruitment agency postings are fine; score the role itself. If the description is empty, score on title and company alone and cap at 75.
 Set dealbreaker=true only for the candidate's stated dealbreakers, when the posting requires a language the candidate does not speak, or when a remote role is restricted to countries the candidate cannot work from.
-Keep reason under 20 words.`;
+Keep reason under 20 words.
+area: where the job is based if the posting states it more precisely than the city (district, street, business park, campus or Eircode, e.g. "Sandyford", "Dublin 2", "Grand Canal Dock", "Citywest", "D02 X285"). Use only what the posting says; empty string if it does not say.`;
 
 const SCHEMA = { type: 'object', required: ['results'], properties: { results: { type: 'array', items: {
-  type: 'object', required: ['id', 'score', 'dealbreaker', 'reason'],
-  properties: { id: { type: 'string' }, score: { type: 'integer' }, dealbreaker: { type: 'boolean' }, reason: { type: 'string' } } } } } };
+  type: 'object', required: ['id', 'score', 'dealbreaker', 'reason', 'area'],
+  properties: { id: { type: 'string' }, score: { type: 'integer' }, dealbreaker: { type: 'boolean' }, reason: { type: 'string' }, area: { type: 'string' } } } } } };
 
 function candidateBrief(user) {
   const p = user.profile;
@@ -47,11 +48,31 @@ async function score(user, store) {
       const s = Math.max(0, Math.min(100, r.score | 0));
       const pass = !r.dealbreaker && s >= threshold;
       if (pass) good++;
-      store.update(j.id, { score: s, reason: r.reason, dealbreaker: r.dealbreaker, status: !pass ? 'skipped' : AUTO_FILL.has(j.ats) ? 'ready' : 'manual' }, 'scored');
+      store.update(j.id, { score: s, reason: r.reason, dealbreaker: r.dealbreaker, area: (r.area || '').trim(), status: !pass ? 'skipped' : AUTO_FILL.has(j.ats) ? 'ready' : 'manual' }, 'scored');
     }
     store.save();
     log(`scored ${batch.length}: ${good} good matches (${store.where(j => j.status === 'new').length} left)`);
   });
 }
 
-module.exports = { score, candidateBrief };
+// Fill in the office area for open jobs scored before the area field existed (cheap model, no scoring).
+const AREA_SCHEMA = { type: 'object', required: ['results'], properties: { results: { type: 'array', items: { type: 'object', required: ['id', 'area'],
+  properties: { id: { type: 'string' }, area: { type: 'string' } } } } } };
+async function locateAreas(user, store) {
+  const todo = store.where(j => j.area === undefined && !['skipped', 'duplicate', 'closed', 'excluded', 'new'].includes(j.status) && j.description);
+  if (!todo.length) return log('map: every open job already has its area checked');
+  log(`map: checking ${todo.length} job descriptions for the office area`);
+  for (let i = 0; i < todo.length; i += 25) {
+    const batch = todo.slice(i, i + 25);
+    try {
+      const r = await ask({ model: user.settings.models.score, schema: AREA_SCHEMA,
+        system: 'For each job, return where it is based if the posting states it more precisely than the city (district, street, business park, campus or Eircode). Use only what the text says; empty string if it does not say.',
+        prompt: batch.map(j => `### id: ${j.id}\nLocation: ${j.location}\n${j.description.slice(0, 3000)}`).join('\n\n') });
+      for (const x of r.results) if (store.get(x.id)) store.get(x.id).area = (x.area || '').trim();
+      for (const j of batch) if (j.area === undefined) j.area = '';
+      store.save();
+    } catch (e) { log('map: area check failed for a batch:', e.message); }
+  }
+}
+
+module.exports = { score, candidateBrief, locateAreas };

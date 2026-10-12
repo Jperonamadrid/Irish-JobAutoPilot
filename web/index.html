@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>JobPilot</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%231F3A68'/><path d='M9 17l5 5 9-12' stroke='white' stroke-width='3.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
   <link rel="stylesheet" href="/style.css">
 </head>
 <body>
@@ -13,6 +14,7 @@
     <nav id="tabs">
       <button data-tab="home" class="on">Home</button>
       <button data-tab="jobs">Jobs</button>
+      <button data-tab="map">Map</button>
       <button data-tab="questions">Questions <span id="qcount" class="pill hide"></span></button>
       <button data-tab="profile">Profile &amp; CV</button>
     </nav>
@@ -59,6 +61,14 @@
       <div id="jobList"></div>
     </section>
 
+    <!-- Map -->
+    <section id="map" class="view hide">
+      <div class="row between wrap"><div id="mapFilters" class="chips"></div><span id="mapNote" class="muted"></span></div>
+      <div class="mapwrap"><div id="leaflet"></div>
+        <aside id="mapSide"></aside></div>
+      <p class="help">Locations are approximate (area centres from the job's location or description), not exact office addresses.</p>
+    </section>
+
     <!-- Questions -->
     <section id="questions" class="view hide">
       <div class="card"><p class="muted">These are questions from application forms that JobPilot could not answer safely from your profile. Answer each once: it is saved and reused on every future form that asks the same thing.</p></div>
@@ -78,6 +88,7 @@
   </main>
 
   <div id="toast" class="toast hide"></div>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
   <script src="/app.js"></script>
 </body>
 </html>
