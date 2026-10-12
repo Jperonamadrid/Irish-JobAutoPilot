@@ -120,9 +120,34 @@ Forbidden: adding or renaming employers, roles, job titles, dates, locations, or
 Style: no em dashes, no "passionate", no "leverage", plain professional tone, keep the spelling conventions of the master. Keep the whole CV to two A4 pages: about 1,000 words at most.
 Keep every skill category name exactly as given.`;
 
+// Names in a piece of text: tools, products, certifications and acronyms ("Salesforce", "SQL",
+// "C#", "Node.js"). A capital on the first word of a sentence does not count.
+const WORD_RE = /[A-Za-z0-9][A-Za-z0-9+#.&']*/g;
+const bare = w => w.replace(/['.]+$/, '').replace(/'s$/i, '');
+function names(text) {
+  const out = [];
+  for (const sentence of String(text || '').replace(/\b(e\.g|i\.e|etc|incl|approx)\./gi, '$1').split(/[.!?;:]\s+|\n+|\s+-\s+/))
+    (sentence.match(WORD_RE) || []).slice(1).map(bare)
+      .filter(w => /[A-Z]/.test(w) || /[+#]/.test(w) || /[a-z]\.[a-z]/i.test(w))
+      .filter(w => w !== 'I' && !/^(e\.g|i\.e)$/i.test(w))
+      .forEach(w => out.push(w));
+  return out;
+}
+// Every word anywhere in the CV (and any extra text), lowercased, for looking names up.
+function vocabulary(cv, ...extra) {
+  const words = new Set();
+  const walk = v => typeof v === 'string' ? (v.match(WORD_RE) || []).forEach(w => words.add(bare(w).toLowerCase()))
+    : v && typeof v === 'object' && Object.values(v).forEach(walk);
+  walk(cv); extra.forEach(walk);
+  return words;
+}
+const inVocab = (vocab, w) => { const l = w.toLowerCase(); return vocab.has(l) || vocab.has(l.replace(/e?s$/, '')) || vocab.has(l + 's'); };
+
 // Rejects a tailored CV that invented anything: the employer/date skeleton and education must be
-// identical, every number must already exist in the master, and no new skills may appear.
-function validate(master, t) {
+// identical, every number must already exist in the master, no new skills may appear, and reworded
+// bullets may not name a tool, product or qualification the master never mentions. The summary may
+// also name the job's own title and company ("...looking to join Stripe as a Support Engineer").
+function validate(master, t, job) {
   const skeleton = cv => JSON.stringify((cv.experience || []).map(e => [e.id, e.company, e.location, e.dates, e.title || '', (e.roles || []).map(r => [r.id, r.title, r.company])]));
   if (skeleton(master) !== skeleton(t)) return 'employer/role/date structure changed';
   if (JSON.stringify(educationList(master)) !== JSON.stringify(educationList(t))) return 'education changed';
@@ -135,6 +160,11 @@ function validate(master, t) {
   const skills = cv => new Set((cv.skills || []).flatMap(([, v]) => v.split(/,\s*/).map(s => s.trim().toLowerCase())));
   const ms = skills(master), extra = [...skills(t)].filter(s => !ms.has(s));
   if (extra.length) return 'new skills: ' + extra.join(', ');
+  const vocab = vocabulary(master), jobWords = vocabulary(job?.title, job?.company);
+  const bullets = (t.experience || []).flatMap(e => [...(e.bullets || []), ...(e.roles || []).flatMap(r => r.bullets || [])]);
+  const unknown = [...new Set([...bullets.flatMap(names).filter(w => !inVocab(vocab, w)),
+    ...names(t.summary).filter(w => !inVocab(vocab, w) && !inVocab(jobWords, w))])];
+  if (unknown.length) return 'names or terms not in the CV: ' + unknown.slice(0, 8).join(', ');
   if (/—/.test(JSON.stringify(t))) return 'em dash';
   return null;
 }
@@ -163,7 +193,7 @@ async function tailor(user, job) {
     const t = { ...cv, summary: r.summary, skills: (r.skills || []).map(s => [s.category, s.items]),
       experience: cv.experience.map(e => ({ ...e, ...(e.bullets ? { bullets: pick(e.id, e.bullets) } : {}),
         ...(e.roles ? { roles: e.roles.map(ro => ({ ...ro, bullets: pick(ro.id, ro.bullets) })) } : {}) })) };
-    lastErr = validate(cv, t);
+    lastErr = validate(cv, t, job);
     if (!lastErr) return t;
     log('tailored CV rejected by the fact check:', lastErr);
   }
@@ -184,4 +214,4 @@ async function cvFor(user, job) {
   return { pdf: await masterPdf(user), summary: user.cv().summary, tailored: false };
 }
 
-module.exports = { cvHtml, cvDocx, render, masterPdf, tailor, validate, cvFor };
+module.exports = { cvHtml, cvDocx, render, masterPdf, tailor, validate, cvFor, names };

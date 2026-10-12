@@ -1,7 +1,7 @@
 // Company job boards with public APIs: Greenhouse, Ashby, Lever, Workable (all auto-fillable)
 // and Workday (discovery only: applying needs an account per employer).
 // map* functions are pure (API JSON in, jobs out) so tests can run them on saved fixtures.
-const { log, request, getJson, postJson, pool, htmlToText, isBlocked } = require('../util');
+const { log, request, getJson, getText, postJson, pool, htmlToText, decode, isBlocked } = require('../util');
 
 const clip = (s, n = 6000) => (s || '').slice(0, n);
 const titleCase = (s, names = {}) => names[s] || s.replace(/(^|[-_ ])(\w)/g, (_, a, b) => (a ? ' ' : '') + b.toUpperCase());
@@ -101,4 +101,73 @@ async function workday({ tenant, wd, site }, { wanted, names, city }) {
   return out;
 }
 
-module.exports = { greenhouse, ashby, lever, workable, workableJobs, workday, mapGreenhouse, mapAshby, mapLever, titleCase };
+// ---- Boards that can be searched but not filled in (their jobs go to the "apply yourself" list) ----
+
+// SmartRecruiters: one company's postings in a country (plus its remote ones), then descriptions.
+function mapSmartRecruiters(list, slug, { wanted, names }) {
+  return list.filter(x => wanted(x.name, [x.location?.fullLocation, x.location?.city, x.location?.remote ? 'remote ' + (x.location?.country || '') : ''])).map(x => ({
+    id: `sr:${slug}:${x.id}`, source: 'smartrecruiters', ats: 'smartrecruiters', board: slug, atsId: x.id,
+    company: x.company?.name || titleCase(slug, names), title: x.name.trim(),
+    location: x.location?.remote ? `Remote (${x.location?.fullLocation || ''})` : x.location?.fullLocation || '',
+    url: `https://jobs.smartrecruiters.com/${x.company?.identifier || slug}/${x.id}`, postedAt: x.releasedDate
+  }));
+}
+const srText = d => htmlToText(Object.values(d?.jobAd?.sections || {}).map(s => s?.text || '').join('\n'));
+async function smartRecruitersJobs(slug, countryCode) {
+  const out = [];
+  for (let offset = 0; offset < 500; offset += 100) {
+    const j = await getJson(`https://api.smartrecruiters.com/v1/companies/${slug}/postings?limit=100&offset=${offset}${countryCode ? '&country=' + countryCode.toLowerCase() : ''}`);
+    if (!j?.content) return offset ? out : null;
+    out.push(...j.content);
+    if (offset + 100 >= (j.totalFound || 0)) break;
+  }
+  return out;
+}
+async function smartrecruiters(slug, ctx) {
+  const list = await smartRecruitersJobs(slug, ctx.countryCode);
+  if (!list) return isBlocked('https://api.smartrecruiters.com/') || log('smartrecruiters company not found:', slug), [];
+  const jobs = mapSmartRecruiters(list, slug, ctx);
+  await pool(jobs, 3, async j => {
+    const d = await getJson(`https://api.smartrecruiters.com/v1/companies/${slug}/postings/${j.atsId}`);
+    j.description = clip(srText(d)); if (d?.postingUrl) j.url = d.postingUrl;
+  });
+  return jobs;
+}
+
+// Recruitee: <slug>.recruitee.com publishes every open job with its description.
+function mapRecruitee(j, slug, { wanted, names }) {
+  return (j.offers || []).filter(x => wanted(x.title, [x.location, x.city, x.country, x.remote ? 'remote ' + (x.country || '') : ''])).map(x => ({
+    id: `recruitee:${slug}:${x.id}`, source: 'recruitee', ats: 'recruitee', board: slug, atsId: String(x.id),
+    company: x.company_name || titleCase(slug, names), title: x.title.trim(), location: x.remote ? `Remote (${x.country || ''})` : x.location || x.city || '',
+    url: x.careers_url, postedAt: x.published_at && new Date(x.published_at.replace(' UTC', 'Z').replace(' ', 'T')).toISOString(),
+    description: clip(htmlToText([x.description, x.requirements].join('\n')))
+  }));
+}
+async function recruitee(slug, ctx) {
+  const j = await getJson(`https://${slug}.recruitee.com/api/offers/`);
+  if (!j) return log('recruitee board not found:', slug), [];
+  return mapRecruitee(j, slug, ctx);
+}
+
+// Personio: <slug>.jobs.personio.de/xml (or .com) lists every position with its description.
+function parsePersonio(xml) {
+  const tag = (b, t) => { const m = b.match(new RegExp(`<${t}>([\\s\\S]*?)</${t}>`)); return m ? decode(m[1].replace(/<!\[CDATA\[|\]\]>/g, '')).trim() : ''; };
+  return (String(xml).match(/<position>[\s\S]*?<\/position>/g) || []).map(b => ({
+    id: tag(b, 'id'), title: tag(b, 'name'), company: tag(b, 'subcompany'), createdAt: tag(b, 'createdAt'),
+    offices: [tag(b, 'office'), ...(tag(b, 'additionalOffices').match(/<office>[^<]*<\/office>/g) || []).map(o => tag(o, 'office'))].filter(Boolean),
+    description: (b.match(/<value>[\s\S]*?<\/value>/g) || []).map(v => tag(v, 'value')).join('\n')
+  })).filter(p => p.id && p.title);
+}
+async function personio(slug, { wanted, names }) {
+  let xml, host;
+  for (host of [`${slug}.jobs.personio.de`, `${slug}.jobs.personio.com`]) if ((xml = await getText(`https://${host}/xml?language=en`))?.includes('<position>')) break;
+  if (!xml?.includes('<position>')) return log('personio board not found:', slug), [];
+  return parsePersonio(xml).filter(p => wanted(p.title, p.offices)).map(p => ({
+    id: `personio:${slug}:${p.id}`, source: 'personio', ats: 'personio', board: slug, atsId: p.id,
+    company: names[slug] || p.company.replace(/\s+(SE|GmbH|Ltd|Limited|Inc)\b.*$/, '') || titleCase(slug, names), title: p.title,
+    location: p.offices.join(', '), url: `https://${host}/job/${p.id}`, postedAt: p.createdAt || undefined, description: clip(htmlToText(p.description))
+  }));
+}
+
+module.exports = { greenhouse, ashby, lever, workable, workableJobs, workday, smartrecruiters, smartRecruitersJobs, recruitee, personio,
+  mapGreenhouse, mapAshby, mapLever, mapSmartRecruiters, mapRecruitee, parsePersonio, titleCase };

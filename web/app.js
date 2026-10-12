@@ -35,6 +35,7 @@ async function refresh() {
   localStorage.setItem('jp-user', state.user);
   state.data = await api(`/users/${state.user}`);
   const q = state.data.questions; $('#qcount').textContent = q; $('#qcount').classList.toggle('hide', !q);
+  const f = state.data.followUps; $('#fcount').textContent = f; $('#fcount').classList.toggle('hide', !f);
   if (!state.data.settings.setupDone) return showSetup();
   $('#tabs').classList.remove('hide');
   if (state.tab === 'setup') state.tab = 'home';
@@ -55,7 +56,7 @@ function showTab(t) {
   state.tab = t;
   $$('#tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === t));
   $$('.view').forEach(v => v.classList.toggle('hide', v.id !== t));
-  const r = ({ home: renderHome, jobs: renderJobs, market: renderMarket, map: renderMap, careers: renderCareers, questions: renderQuestions, profile: renderStep })[t]?.();
+  const r = ({ home: renderHome, jobs: renderJobs, results: renderResults, market: renderMarket, map: renderMap, careers: renderCareers, questions: renderQuestions, profile: renderStep })[t]?.();
   if (r?.catch) r.catch(e => toast(e.message));
 }
 $$('#tabs button').forEach(b => b.onclick = () => showTab(b.dataset.tab));
@@ -78,12 +79,25 @@ function connect() {
     $('#taskState').textContent = t ? `${t.label}…` : 'Idle';
     $('#stopTask').classList.toggle('hide', !t);
     if (t && !was) $('#log').textContent = '';
-    if (!t && was) refresh().then(() => onTaskDone.splice(0).forEach(f => f(was))).catch(() => {});
+    if (!t && was) {
+      const before = recommended();
+      refresh().then(() => { notifyDone(was, before); onTaskDone.splice(0).forEach(f => f(was)); }).catch(() => {});
+    }
     $$('[data-run]').forEach(b => b.disabled = !!t);
   });
   es.onerror = () => { $('#taskState').textContent = 'Reconnecting…'; };
 }
 $('#stopTask').onclick = guard(() => api('/task', { method: 'DELETE' }));
+const recommended = () => { const c = state.data?.counts || {}; return (c.ready || 0) + (c.manual || 0); };
+// A desktop notification when a long task finishes while you are looking at something else.
+function notifyDone(t, before) {
+  if (!('Notification' in window) || Notification.permission !== 'granted' || !document.hidden) return;
+  const r = state.lastResult, now = recommended();
+  const body = r && !r.ok ? `${t.label} stopped: ${r.error || 'see the Activity log'}`
+    : ['run', 'scan', 'find'].includes(t.name) ? `${now} jobs recommended for you${now > before ? ` (${now - before} new)` : ''}.` : `${t.label} finished.`;
+  const n = new Notification('JobPilot', { body, tag: 'jobpilot-task' });
+  n.onclick = () => { window.focus(); state.jobFilter = 'recommended'; showTab('jobs'); n.close(); };
+}
 
 // ---- shared form helpers -------------------------------------------------------------------------------
 const field = (id, label, value, { type = 'text', help = '', options, req } = {}) => `<label>${label}${req ? ' <b class="req">*</b>' : ''}${options
@@ -351,12 +365,18 @@ function renderHome() {
   $('#modeBanner').innerHTML = auto
     ? `<b>🚀 Apply for me</b> is on: strong fits (score ${d.settings.auto.minScore}+) are submitted automatically, up to ${d.settings.auto.dailyLimit} a day. <a href="#" data-goto="mode">Change</a>`
     : `<b>🧭 Help me apply</b>: JobPilot recommends jobs and makes a tailored CV and cover letter for each; you apply. <a href="#" data-goto="mode">Change</a>`;
+  const sc = d.settings.schedule || {};
+  $('#modeBanner').innerHTML += `<div class="small" style="margin-top:4px">⏰ ${sc.on ? `Daily run starts by itself ${sc.days === 'weekdays' ? 'every weekday' : 'every day'} at ${esc(sc.time)} while JobPilot is open.`
+    : 'Daily run: only when you press the button.'} <a href="#" data-goto="search">${sc.on ? 'Change' : 'Run it automatically'}</a></div>`;
   const rec = (c.ready || 0) + (c.manual || 0);
   const stats = [['recommended', rec, 'Recommended for you'], ['needs_input', c.needs_input || 0, 'Need your answers'],
     ...(auto ? [['submitted', d.autoToday, 'Applied for you today']] : [['ready_to_submit', c.ready_to_submit || 0, 'Forms filled, ready to send']]),
-    ['submitted', c.submitted || 0, 'Applied in total']];
+    ['submitted', c.submitted || 0, 'Applied in total'], ...(d.followUps ? [['results', d.followUps, 'Follow-ups due']] : [])];
   $('#stats').innerHTML = stats.map(([k, n, l]) => `<div class="stat" data-go="${k}"><b>${n}</b><span>${l}</span></div>`).join('');
-  $$('.stat').forEach(s => s.onclick = () => { state.jobFilter = s.dataset.go; showTab(s.dataset.go === 'needs_input' && d.questions ? 'questions' : 'jobs'); });
+  $$('.stat').forEach(s => s.onclick = () => {
+    if (s.dataset.go === 'results') return showTab('results');
+    state.jobFilter = s.dataset.go; showTab(s.dataset.go === 'needs_input' && d.questions ? 'questions' : 'jobs');
+  });
   $('#actions').innerHTML = `
     <button class="primary big" data-run="run">▶ Daily run<small>find new jobs, score them, make CVs and letters${auto ? ', apply to strong fits' : ''}</small></button>
     <button class="big" data-show="jobs">⭐ My recommended jobs<small>links, why they fit, tailored CV and cover letter</small></button>
@@ -393,31 +413,127 @@ function jobCard(j) {
     <div class="score" title="How well it fits you (0-100)">${j.score ?? '–'}</div>
     <div>
       <h3>${esc(j.title)}</h3>
-      <div class="meta">${esc(j.company)} · ${esc(j.location || '')} · <span class="tag ${j.status}">${j.autoSubmitted ? 'Applied for you' : STATUS_LABEL[j.status] || j.status}</span> <span class="tag">${esc(j.source || '')}</span></div>
+      <div class="meta">${j.followed ? '<span class="tag follow" title="A company you follow">★ Following</span> ' : ''}${esc(j.company)} · ${esc(j.location || '')} · <span class="tag ${j.status}">${j.autoSubmitted ? 'Applied for you' : STATUS_LABEL[j.status] || j.status}</span> <span class="tag">${esc(j.source || '')}</span></div>
       ${j.reason ? `<div class="why">💡 ${esc(j.reason)}</div>` : ''}
+      ${j.status === 'skipped' && j.verdict?.reason ? `<div class="why muted">You said: ${esc(j.verdict.reason)}</div>` : ''}
       ${j.status === 'needs_input' ? `<div class="why">Waiting on: ${esc(j.pending.map(p => p.label).join('; ').slice(0, 220))}</div>` : ''}
       ${j.problems.length || j.error ? `<div class="why" style="color:var(--red)">${esc(j.error || j.problems.map(p => p.label + ': ' + p.why).join('; ').slice(0, 220))}</div>` : ''}
       ${k ? `<details class="kit"><summary>📎 Your tailored CV and cover letter</summary>
           <div class="links"><a href="${file(k.cvPdf)}" target="_blank">CV (PDF)</a>${k.cvDocx ? `<a href="${file(k.cvDocx)}">CV (Word)</a>` : ''}<a href="${file(k.letterPdf)}" target="_blank">Cover letter (PDF)</a>${k.letterDocx ? `<a href="${file(k.letterDocx)}">Cover letter (Word)</a>` : ''}<a href="#" data-copy="${esc(j.id)}">Copy cover letter text</a></div>
           <b>What was changed in your CV:</b><ul>${k.changes.map(x => `<li>${esc(x)}</li>`).join('')}</ul></details>` : ''}
+      ${j.status === 'submitted' ? outcomeRow(j) : ''}
+      ${prepPanel(j)}
       <div class="links"><a href="${esc(j.url)}" target="_blank" rel="noopener">Open the job ad ↗</a>
         ${j.screenshot ? `<a href="${file(j.screenshot)}" target="_blank">Filled form</a>` : ''}${j.submittedShot ? `<a href="${file(j.submittedShot)}" target="_blank">Submission screenshot</a>` : ''}</div>
     </div>
     <div class="btns">
       ${['ready', 'manual'].includes(j.status) && !k ? `<button class="small" data-kit="${esc(j.id)}">Make CV + letter</button>` : ''}
       ${['ready', 'needs_input', 'ready_to_submit'].includes(j.status) && j.canFill ? `<button class="small accent" data-review="${esc(j.id)}">Fill the form for me</button>` : ''}
-      ${j.status !== 'submitted' ? `<button class="small accent" data-mark="submitted" data-id="${esc(j.id)}">I applied</button>` : ''}
-      ${!['submitted', 'skipped'].includes(j.status) ? `<button class="small ghost" data-mark="skipped" data-id="${esc(j.id)}">Not for me</button>` : ''}
+      ${j.status === 'submitted' && ['interview', 'offer'].includes(j.outcome) ? `<button class="small accent" data-prep="${esc(j.id)}">${j.prep ? 'Redo interview prep' : 'Prepare for interview'}</button>` : ''}
+      ${j.status !== 'submitted' ? (j.hasTailoredCv
+        ? `<span class="applied-with" data-id="${esc(j.id)}"><button class="small accent" data-applied="${esc(j.id)}">I applied</button></span>`
+        : `<button class="small accent" data-mark="submitted" data-id="${esc(j.id)}">I applied</button>`) : ''}
+      ${!['submitted', 'skipped'].includes(j.status) ? `<span class="skip-why"><button class="small ghost" data-skip="${esc(j.id)}">Not for me</button></span>` : ''}
       ${j.status === 'skipped' ? `<button class="small ghost" data-mark="ready" data-id="${esc(j.id)}">Recommend anyway</button>` : ''}
     </div></div>`;
 }
+// After applying: what happened, plus a nudge to follow up (10+ days) or close it (30+ days).
+const OUTCOMES = [['waiting', 'Waiting to hear'], ['replied', 'Heard back'], ['interview', 'Interview'], ['offer', 'Offer'], ['rejected', 'Rejected'], ['no_reply', 'No reply']];
+const nudgeText = n => n.kind === 'follow_up'
+  ? `⏰ Applied ${n.days} days ago with no reply. A short, polite follow-up email to the recruiter often helps.`
+  : `No reply after ${n.days} days. Mark it as "No reply" to keep your results accurate.`;
+// A polite follow-up email to copy into your mail app (no AI needed).
+function followUpEmail(j) {
+  const p = state.data.profile, when = j.submittedAt ? new Date(j.submittedAt).toLocaleDateString('en-IE', { day: 'numeric', month: 'long' }) : 'recently';
+  return `Subject: Following up on my application for ${j.title}\n\nHello,\n\nI applied for the ${j.title} role at ${j.company} on ${when} and wanted to follow up. ` +
+    `I am still very interested in the position and would be glad to share anything else that would help with your decision.\n\nThank you for your time.\n\nKind regards,\n${p.fullName || ''}${p.phone ? '\n' + p.phone : ''}`;
+}
+// Interview prep notes, once made.
+function prepPanel(j) {
+  const p = j.prep;
+  if (!p) return '';
+  return `<details class="kit"><summary>🎯 Interview prep</summary>
+    <h3>About you in 30 seconds</h3><p>${esc(p.pitch)}</p>
+    <h3>Questions they are likely to ask</h3>${p.questions.map(q => `<div class="prepq"><b>${esc(q.q)}</b><div class="muted small">${esc(q.why)}</div><div>${esc(q.answer)}</div></div>`).join('')}
+    <h3>Questions to ask them</h3><ul>${p.askThem.map(x => `<li>${esc(x)}</li>`).join('')}</ul>
+    <h3>Before the interview</h3><ul>${p.prepare.map(x => `<li>${esc(x)}</li>`).join('')}</ul></details>`;
+}
+function outcomeRow(j) {
+  return `<div class="outcome"><div class="row wrap"><label class="row">What happened? <select data-outcome="${esc(j.id)}" style="width:auto">${OUTCOMES.map(([v, l]) =>
+      `<option value="${v}" ${(j.outcome || 'waiting') === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+    ${j.hasTailoredCv ? `<label class="row">CV sent <select data-cvused="${esc(j.id)}" style="width:auto">${[['', 'Not recorded'], ['tailored', 'Tailored'], ['standard', 'Standard']].map(([v, l]) =>
+      `<option value="${v}" ${(j.cvUsed || '') === v ? 'selected' : ''} ${!v ? 'disabled' : ''}>${l}</option>`).join('')}</select></label>` : ''}</div>
+    ${j.nudge ? `<div class="why">${nudgeText(j.nudge)} ${j.nudge.kind === 'follow_up' ? `<button class="small" data-email="${esc(j.id)}">Copy a follow-up email</button> <button class="small" data-followed="${esc(j.id)}">I followed up</button>`
+      : `<button class="small" data-noreply="${esc(j.id)}">Mark as no reply</button>`}</div>` : ''}</div>`;
+}
+function bindOutcomeButtons(after, jobs = []) {
+  const set = (id, body) => post(`/users/${state.user}/jobs/${encodeURIComponent(id)}`, body).then(refresh).then(() => after?.());
+  $$('[data-outcome]').forEach(sel => sel.onchange = guard(() => set(sel.dataset.outcome, { outcome: sel.value })));
+  $$('[data-cvused]').forEach(sel => sel.onchange = guard(() => set(sel.dataset.cvused, { cvUsed: sel.value })));
+  $$('[data-followed]').forEach(b => b.onclick = guard(() => set(b.dataset.followed, { followedUp: true })));
+  $$('[data-noreply]').forEach(b => b.onclick = guard(() => set(b.dataset.noreply, { outcome: 'no_reply' })));
+  $$('[data-email]').forEach(b => b.onclick = guard(async () => {
+    const j = jobs.find(x => x.id === b.dataset.email); if (!j) return;
+    await navigator.clipboard.writeText(followUpEmail(j)); toast('Follow-up email copied: paste it into a reply to the recruiter or the company\'s jobs address.', 7000);
+  }));
+  $$('[data-prep]').forEach(b => b.onclick = guard(async () => {
+    await runTask('prep', [b.dataset.prep]); toast('Writing your interview notes (about a minute)…');
+    onTaskDone.push(() => showTab(state.tab));
+  }));
+}
 function bindJobButtons(list) {
-  $$('[data-mark]').forEach(b => b.onclick = guard(async () => { await post(`/users/${state.user}/jobs/${encodeURIComponent(b.dataset.id)}`, { status: b.dataset.mark }); await refresh(); }));
+  bindOutcomeButtons(null, list);
+  const mark = guard(async (id, body) => { await post(`/users/${state.user}/jobs/${encodeURIComponent(id)}`, body); await refresh(); });
+  $$('[data-mark]').forEach(b => b.onclick = () => mark(b.dataset.id, { status: b.dataset.mark }));
+  // "Not for me": a one-tap reason teaches the scoring what to avoid (it is optional).
+  const SKIP_REASONS = ['Wrong kind of work', 'Too senior', 'Too junior', 'Too far / wrong location', 'Pay too low', 'Not this company', 'Other'];
+  $$('[data-skip]').forEach(b => b.onclick = () => {
+    const id = b.dataset.skip, box = b.parentElement;
+    box.innerHTML = `<div class="reasons"><span class="muted small">Why? (helps future scoring)</span>${SKIP_REASONS.map(r => `<button class="small ghost" data-why="${esc(r)}">${esc(r)}</button>`).join('')}<button class="small ghost" data-why="">Just skip</button></div>`;
+    box.querySelectorAll('[data-why]').forEach(w => w.onclick = () => {
+      const reason = w.dataset.why === 'Other' ? (prompt('In a few words, why is this job not for you?') || '') : w.dataset.why;
+      mark(id, { status: 'skipped', reason });
+    });
+  });
+  // A tailored CV exists: ask which one went with the application, so Results compares what was sent.
+  $$('[data-applied]').forEach(b => b.onclick = () => {
+    const box = b.parentElement, id = box.dataset.id;
+    box.innerHTML = `<span class="muted small">Which CV did you send?</span> <button class="small accent" data-cv="tailored">Tailored</button> <button class="small" data-cv="standard">Standard</button>`;
+    box.querySelectorAll('[data-cv]').forEach(c => c.onclick = () => mark(id, { status: 'submitted', cvUsed: c.dataset.cv }));
+  });
   $$('[data-review]').forEach(b => b.onclick = guard(async () => { toast('Opening the form in a browser window. Check it, click Submit, then close the tab.', 8000); await runTask('review', [b.dataset.review]); showTab('home'); }));
   $$('[data-kit]').forEach(b => b.onclick = guard(async () => { await runTask('kits', [b.dataset.kit]); toast('Making the tailored CV and cover letter (about a minute)…'); onTaskDone.push(() => showTab('jobs')); }));
   $$('[data-copy]').forEach(a => a.onclick = guard(async e => { e.preventDefault(); const j = list.find(x => x.id === a.dataset.copy); await navigator.clipboard.writeText(j.kit.letter); toast('Cover letter copied: paste it into the application.'); }));
 }
 $('#jobSearch').oninput = () => renderJobs();
+
+// ---- results ------------------------------------------------------------------------------------------------
+async function renderResults() {
+  const r = await api(`/users/${state.user}/outcomes`), t = r.total, el = $('#resultsBody');
+  if (!t.applied) {
+    el.innerHTML = `<div class="card"><h2>No applications yet</h2><p class="muted">When you apply (press "I applied" on a job, or let JobPilot apply for you), record here what happened next: replies, interviews, offers. JobPilot then shows which job sites, CV versions and fit scores actually get you answers, and reminds you to follow up.</p></div>`;
+    return;
+  }
+  const pct = (a, b) => b ? Math.round(100 * a / b) + '%' : '–';
+  const table = (title, rows) => rows.length > 1 ? `<div class="card"><h2>${title}</h2><div class="tblwrap"><table class="tbl">
+    <tr><th></th><th>Applied</th><th>Heard back</th><th>Interviews</th><th>Offers</th><th>Reply rate</th></tr>
+    ${rows.map(x => `<tr><td>${esc(x.label)}</td><td>${x.applied}</td><td>${x.responded}</td><td>${x.interviews}</td><td>${x.offers}</td>
+      <td>${x.responseRate}%${x.applied < 10 ? ' <span class="muted small">(few)</span>' : ''}</td></tr>`).join('')}</table></div></div>` : '';
+  el.innerHTML = `
+    <div class="stats">
+      <div class="stat"><b>${t.applied}</b><span>applied</span></div>
+      <div class="stat"><b>${t.responded}</b><span>heard back (${t.responseRate}%)</span></div>
+      <div class="stat"><b>${t.interviews}</b><span>interviews (${pct(t.interviews, t.applied)})</span></div>
+      <div class="stat"><b>${t.offers}</b><span>offers</span></div>
+      <div class="stat"><b>${t.noReply}</b><span>no reply after a month</span></div>
+    </div>
+    <div class="card"><h2>Follow-ups due</h2>
+      ${r.nudges.length ? r.nudges.map(n => `<div class="q"><b>${esc(n.title)}</b> <span class="muted">${esc(n.company)}</span> · <a href="${esc(n.url)}" target="_blank" rel="noopener">job ad ↗</a>
+        ${outcomeRow({ ...n, outcome: 'waiting' })}</div>`).join('') : '<p class="muted">Nothing to follow up right now.</p>'}</div>
+    ${table('By job site', r.bySource)}${table('By CV version', r.byCv)}${table('By fit score', r.byScore)}${table('Who applied', r.byHow)}
+    <p class="help">Rates on fewer than 10 applications can swing a lot; give it a few weeks before changing your search because of them. Record outcomes on the Jobs page (Applied) or here.</p>`;
+  bindOutcomeButtons(() => showTab('results'), r.nudges);
+}
 
 // ---- market -----------------------------------------------------------------------------------------------
 async function renderMarket() {
@@ -525,9 +641,9 @@ function renderStep() {
   if (state.step === 'about') { body.innerHTML = aboutForm(d.profile) + saveBar; $('#saveStep').onclick = guard(async () => { await saveAbout(false); toast('Saved'); }); return; }
   if (state.step === 'search') {
     const se = d.settings.search, a = d.settings.apply, so = d.settings.sources;
-    const src = [['boards', 'Company career pages (Greenhouse, Ashby, Lever, Workable)'], ['linkedin', 'LinkedIn'], ['irishjobs', 'IrishJobs.ie and Jobs.ie'],
-      ['careerjet', 'CareerJet.ie'], ['publicjobs', 'publicjobs.ie (public sector)'], ['jobsireland', 'JobsIreland.ie'], ['workable', 'Workable search'],
-      ['jobicy', 'Remote job feed (Jobicy)'], ['workday', 'Workday employers'], ['jooble', 'Jooble (needs a free API key)']];
+    const src = [['boards', 'Company career pages (Greenhouse, Ashby, Lever, Workable, SmartRecruiters, Recruitee, Personio)'], ['linkedin', 'LinkedIn'], ['irishjobs', 'IrishJobs.ie and Jobs.ie'],
+      ['careerjet', 'CareerJet.ie'], ['publicjobs', 'publicjobs.ie (public sector)'], ['jobsireland', 'JobsIreland.ie'], ['recruitireland', 'RecruitIreland.com'], ['workable', 'Workable search'],
+      ['jobicy', 'Remote job feed (Jobicy)'], ['remoteok', 'Remote job feed (Remote OK)'], ['workday', 'Workday employers'], ['jooble', 'Jooble (needs a free API key)']];
     body.innerHTML = `<div class="card"><h2>Jobs to look for</h2>${titlePicker([], se.titles)}<p class="help">Search keywords update automatically from these titles.</p></div>
       <div class="card"><h2>Where and how much</h2><div class="grid2">
         ${field('city', 'Area', se.city)}
@@ -536,13 +652,24 @@ function renderStep() {
         ${field('threshold', 'Recommend jobs scoring at least', a.threshold, { type: 'number', help: '70 is a good start. Lower = more jobs, more long shots.' })}
         ${field('kitsPerRun', 'Tailored CV + letter packs per run', a.kitsPerRun ?? 10, { type: 'number' })}
         ${field('excludeCompanies', 'Never apply to (comma separated)', se.excludeCompanies.join(', '))}</div></div>
+      <div class="card"><h2>Automatic daily run</h2>
+        <label class="row"><input type="checkbox" id="schedOn" style="width:auto" ${d.settings.schedule?.on ? 'checked' : ''}> Start the daily run by itself</label>
+        <div class="grid2" style="margin-top:8px">${field('schedTime', 'At', d.settings.schedule?.time || '08:30', { type: 'time' })}
+          ${field('schedDays', 'On', d.settings.schedule?.days || 'weekdays', { options: [['weekdays', 'Weekdays'], ['daily', 'Every day']] })}</div>
+        <p class="help">JobPilot must be open (it can sit in the background). If the computer was off at that time, the run starts when JobPilot is next opened that day. You get a notification when it finishes.</p></div>
+      <div class="card"><h2>Companies you'd love to work for</h2>
+        ${field('followCompanies', 'One per line: a company name, or better, a link to its careers page', (se.followCompanies || []).join('\n'), { type: 'textarea',
+          help: 'Their own job boards are checked on every run, and the AI knows you want to work there. Links from Greenhouse, Lever, Ashby, Workable, SmartRecruiters, Recruitee, Personio and Workday careers pages work; for a name, JobPilot looks up the board and says in the Activity log what it found.' })}</div>
       <div class="card"><h2>Where to look</h2>${src.map(([k, l]) => `<label class="row"><input type="checkbox" id="src_${k}" style="width:auto" ${so[k] ? 'checked' : ''}> ${l}</label>`).join('')}
         <div style="margin-top:10px">${field('joobleKey', 'Jooble API key (optional)', d.settings.joobleKey)}</div>
         <details style="margin-top:10px"><summary class="muted">Advanced: title keywords</summary><p class="help">Include: ${esc(se.includeKeywords.join(', '))}</p><p class="help">Exclude: ${esc(se.excludeKeywords.join(', '))}</p></details></div>${saveBar}`;
     bindTitlePicker();
     $('#saveStep').onclick = guard(async () => {
       const titles = pickedTitles(); if (!titles.length) throw new Error('Keep at least one job title');
-      await put(`/users/${state.user}/settings`, { search: { city: val('city'), remote: val('remote'), excludeCompanies: val('excludeCompanies').split(',').map(s => s.trim()).filter(Boolean) },
+      if ($('#schedOn').checked && 'Notification' in window && Notification.permission === 'default') Notification.requestPermission().catch(() => {});
+      await put(`/users/${state.user}/settings`, { search: { city: val('city'), remote: val('remote'), excludeCompanies: val('excludeCompanies').split(',').map(s => s.trim()).filter(Boolean),
+          followCompanies: [...new Set(val('followCompanies').split('\n').map(s => s.trim()).filter(Boolean))] },
+        schedule: { on: $('#schedOn').checked, time: val('schedTime') || '08:30', days: val('schedDays') },
         apply: { minSalary: +val('minSalary') || 0, threshold: Math.min(95, Math.max(30, +val('threshold') || 70)), kitsPerRun: Math.max(1, +val('kitsPerRun') || 10) },
         sources: Object.fromEntries(src.map(([k]) => [k, $('#src_' + k).checked])), joobleKey: val('joobleKey') });
       if (titles.join('|') !== se.titles.join('|')) await post(`/users/${state.user}/titles`, { titles });

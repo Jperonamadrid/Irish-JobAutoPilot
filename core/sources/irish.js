@@ -3,6 +3,7 @@
 //   publicjobs.ie  public sector (councils, HSE, civil service)             plain HTTP, structured listing
 //   JobsIreland.ie the State's employment portal                           inside its own page (it only
 //                  answers requests made from its pages)
+//   RecruitIreland Irish job board (robots.txt allows all)                  plain HTTP, search page + job page
 // Not included: Indeed and Glassdoor show "verify you are human" challenges to automated
 // browsers, and this app does not try to get around those.
 const { log, getText, request, pool, decode, htmlToText, sleep } = require('../util');
@@ -99,4 +100,52 @@ async function jobsireland(page, { titles, wanted, city, days }) {
   return [...out.values()];
 }
 
-module.exports = { careerjet, publicjobs, jobsireland, parsePublicJobs, parseJobsIreland };
+// ---- RecruitIreland.com ---------------------------------------------------------------------------
+const RI = 'https://www.recruitireland.com';
+// "5 days ago", "3 hours ago", "Today" -> ISO date (approximate, as the site shows it).
+function agoToDate(text, now = Date.now()) {
+  const t = String(text || '').toLowerCase().trim();
+  if (/today|just now|hour|minute/.test(t)) return new Date(now).toISOString();
+  if (/yesterday/.test(t)) return new Date(now - 86400000).toISOString();
+  const m = t.match(/(\d+)\s*(day|week|month)/);
+  return m ? new Date(now - +m[1] * { day: 1, week: 7, month: 30 }[m[2]] * 86400000).toISOString() : undefined;
+}
+function parseRecruitIreland(html) {
+  return html.split('class="rounded bg-2-grey-50 p-5 lg:p-10 space-y-5"').slice(1).map(card => {
+    const link = card.match(/href="(https:\/\/www\.recruitireland\.com\/company\/([^/"]+)\/job\/[^"]*?-(\d+))"/);
+    const title = card.match(/<h2[^>]*>\s*<a[^>]*>\s*([\s\S]*?)\s*<\/a>/);
+    if (!link || !title) return null;
+    const span = icon => { const m = card.match(new RegExp(`icon-${icon}[^>]*><\\/i>\\s*<span[^>]*>([^<]*)<`)); return m ? decode(m[1]).trim() : ''; };
+    const company = decode((card.match(/<img[^>]*alt="([^"]*)"/) || [])[1] || '') || link[2].replace(/-/g, ' ');
+    return { id: link[3], url: link[1], title: decode(title[1]).trim(), company, location: span('location'), workplace: span('building'),
+      salary: span('money'), ago: span('calendar'), snippet: decode((card.match(/<p class="line-clamp-2">([\s\S]*?)<\/p>/) || [])[1] || '').trim() };
+  }).filter(Boolean);
+}
+const recruitIrelandText = html => htmlToText((String(html).match(/class="prose prose-base[^"]*">([\s\S]*?)<\/div>/) || [])[1] || '');
+async function recruitireland({ titles, wanted, days }) {
+  const out = new Map(), cutoff = Date.now() - (days + 1) * 86400000, UA = { 'User-Agent': 'Mozilla/5.0 JobPilot' };
+  for (const kw of titles) {
+    const html = await getText(`${RI}/search/jobs?query=${encodeURIComponent(kw)}`, { headers: UA });
+    if (!html) { log('recruitireland: no response for', kw); continue; }
+    for (const r of parseRecruitIreland(html)) {
+      const postedAt = agoToDate(r.ago);
+      if (postedAt && Date.parse(postedAt) < cutoff) continue;
+      const remote = /remote/i.test(r.workplace) ? 'remote ireland' : '';
+      if (!wanted(r.title, [r.location, remote, /dublin/i.test(r.title) ? 'Dublin' : ''])) continue;
+      out.set(r.id, { id: `recruitireland:${r.id}`, source: 'recruitireland', ats: 'external', company: r.company, title: r.title,
+        location: remote ? `${r.location} (remote)` : r.location, url: r.url, postedAt, salaryText: r.salary,
+        description: [r.snippet, r.salary && `Salary: ${r.salary}`].filter(Boolean).join('\n') });
+    }
+    await sleep(500);
+  }
+  // Full descriptions for the jobs that passed the filters (the search page shows only a snippet).
+  await pool([...out.values()], 2, async j => {
+    const d = recruitIrelandText(await getText(j.url, { headers: UA }) || '');
+    if (d) j.description = clip([d, j.salaryText && `Salary: ${j.salaryText}`].filter(Boolean).join('\n'));
+    await sleep(300);
+  });
+  for (const j of out.values()) delete j.salaryText;
+  return [...out.values()];
+}
+
+module.exports = { recruitireland, parseRecruitIreland, recruitIrelandText, agoToDate, careerjet, publicjobs, jobsireland, parsePublicJobs, parseJobsIreland };

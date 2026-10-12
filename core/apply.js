@@ -60,6 +60,10 @@ async function emptyRequired(page) {
   });
 }
 
+// Answers from an earlier fill, reused at no AI cost. One letter per job: the one shown on the
+// Jobs page (kit) is the one the form gets.
+const earlierAnswers = job => job.kit?.letter ? { ...job.answers, coverLetter: job.kit.letter } : job.answers;
+
 // Fill one job's form in `browser`. Returns the open page when keepOpen, otherwise closes it.
 async function prepareOne(user, browser, store, job, { keepOpen = false } = {}) {
   const ad = adapters[job.ats];
@@ -69,16 +73,18 @@ async function prepareOne(user, browser, store, job, { keepOpen = false } = {}) 
 
   // CV: tailored once per job and reused on later re-fills.
   const files = { degreeFallback: user.profile.education?.degreeFallback };
+  let tailored = false;
   if (job.cvPdf && fs.existsSync(path.join(user.dir, job.cvPdf))) {
-    files.cv = path.join(user.dir, job.cvPdf);
+    files.cv = path.join(user.dir, job.cvPdf); tailored = true;
     files.summary = job.cvSummary || user.cv().summary;
   } else if (user.settings.apply.tailorCv) {
     const c = await cvFor(user, job);
     files.cv = c.pdf; files.summary = c.summary;
     if (c.tailored) store.update(job.id, { cvPdf: path.relative(user.dir, c.pdf), cvSummary: c.summary });
+    tailored = c.tailored;
   } else { files.cv = await masterPdf(user); files.summary = user.cv().summary; }
 
-  const res = await resolve(user, job, sch.fields, files, job.answers);
+  const res = await resolve(user, job, sch.fields, files, earlierAnswers(job));
   if (res.coverLetter && sch.fields.some(f => f.role === 'coverLetter' && f.type === 'file'))
     files.coverLetter = await letterPdf(path.join(out, `Cover Letter - ${user.profile.fullName}.pdf`), res.coverLetter);
   if (res.coverLetter) { fs.mkdirSync(out, { recursive: true }); fs.writeFileSync(path.join(out, 'cover-letter.txt'), res.coverLetter); }
@@ -92,7 +98,7 @@ async function prepareOne(user, browser, store, job, { keepOpen = false } = {}) 
   await page.screenshot({ path: shot, fullPage: true }).catch(() => {});
   store.update(job.id, {
     answers: { values: res.values, sources: res.sources, coverLetter: res.coverLetter, pending: res.pending },
-    pending, screenshot: path.relative(user.dir, shot), filledAt: new Date().toISOString(), error: undefined,
+    pending, screenshot: path.relative(user.dir, shot), cvUsed: tailored ? 'tailored' : 'standard', filledAt: new Date().toISOString(), error: undefined,
     status: pending.length ? 'needs_input' : 'ready_to_submit'
   }, pending.length ? `${pending.length} open question(s)` : 'prepared');
   log(`${pending.length ? 'needs you    ' : 'prepared     '} ${job.score ?? '--'} ${job.company} | ${job.title}` +
@@ -175,4 +181,4 @@ async function review(user, store, { ids, onStep } = {}) {
   } finally { await browser.close().catch(() => {}); await closePdf(); }
 }
 
-module.exports = { prepare, review, prepareOne, pick, adapters, canAutoSubmit, emptyRequired };
+module.exports = { prepare, review, prepareOne, pick, adapters, canAutoSubmit, emptyRequired, earlierAnswers };

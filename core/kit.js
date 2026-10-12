@@ -43,7 +43,8 @@ function cvChanges(master, t) {
 async function makeKit(user, store, job) {
   const dir = path.join(user.paths.outputs, 'jobs', job.id.replace(/[^\w.-]+/g, '_'));
   const c = await cvFor(user, job);
-  const letter = job.kit?.letter || await writeLetter(user, job);
+  // Reuse the letter already sent with a filled form, so the pack shows what the employer got.
+  const letter = job.kit?.letter || job.answers?.coverLetter || await writeLetter(user, job);
   const letterFile = await letterPdf(path.join(dir, `Cover Letter - ${user.profile.fullName}.pdf`), letter);
   const letterWord = await letterDocx(letterFile.replace(/\.pdf$/, '.docx'), letter);
   const rel = f => f && path.relative(user.dir, f);

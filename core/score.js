@@ -18,13 +18,26 @@ const SCHEMA = { type: 'object', required: ['results'], properties: { results: {
   type: 'object', required: ['id', 'score', 'dealbreaker', 'reason', 'area'],
   properties: { id: { type: 'string' }, score: { type: 'integer' }, dealbreaker: { type: 'boolean' }, reason: { type: 'string' }, area: { type: 'string' } } } } } };
 
-function candidateBrief(user) {
+// The person's own calls on earlier jobs ("Not for me" with a reason, jobs they applied to or
+// recommended anyway) are the best guide to what they want, better than any rule they wrote.
+function decisions(store, { no = 15, yes = 10 } = {}) {
+  if (!store) return '';
+  const recent = v => store.where(j => j.verdict?.verdict === v).sort((a, b) => String(b.verdict.at).localeCompare(String(a.verdict.at)));
+  const line = j => `- ${j.title} at ${j.company}${j.verdict.reason ? `: ${j.verdict.reason}` : ''}`;
+  const n = recent('no').slice(0, no), y = recent('yes').slice(0, yes);
+  if (!n.length && !y.length) return '';
+  return ['', "# The candidate's own recent decisions (score similar jobs the same way)",
+    ...(y.length ? ['Wanted (applied or asked to see):', ...y.map(line)] : []), ...(n.length ? ['Turned down, with their reason:', ...n.map(line)] : [])].join('\n');
+}
+
+function candidateBrief(user, store) {
   const p = user.profile;
   return [`Name: ${p.fullName}. Based in ${p.city || user.settings.search.city}, ${p.country || user.preset.country}. Languages: ${(p.languages || []).join(', ') || 'English'}.`,
     `Work authorisation: ${p.workAuthorized || 'not stated'}; needs sponsorship: ${p.needsSponsorship || 'not stated'}.`,
     `Target roles: ${user.settings.search.titles.join(', ')}.`,
     `Remote: ${user.settings.search.remote}.`,
-    '', '# Candidate rules', user.rules(), '', '# CV', plainText(user.cv())].join('\n');
+    ...(user.settings.search.followCompanies?.length ? [`Companies the candidate especially wants to work for: ${user.settings.search.followCompanies.join(', ')}.`] : []),
+    '', '# Candidate rules', user.rules(), decisions(store), '', '# CV', plainText(user.cv())].join('\n');
 }
 
 // Most relevant first: titles matching more of the person's search words, then newest. Each run
@@ -42,7 +55,7 @@ async function score(user, store) {
   const cap = user.settings.apply.maxScorePerRun || 300;
   const todo = all.sort((a, b) => relevance(user, b) - relevance(user, a)).slice(0, cap);
   if (all.length > cap) log(`scoring the ${cap} most relevant of ${all.length} new jobs now; the other ${all.length - cap} are scored on the next runs`);
-  const brief = candidateBrief(user);
+  const brief = candidateBrief(user, store);
   const { threshold } = user.settings.apply;
   const batches = [];
   for (let i = 0; i < todo.length; i += BATCH) batches.push(todo.slice(i, i + BATCH));
@@ -87,4 +100,4 @@ async function locateAreas(user, store) {
   }
 }
 
-module.exports = { score, candidateBrief, locateAreas };
+module.exports = { score, candidateBrief, decisions, locateAreas };

@@ -26,12 +26,16 @@ const HELP = `JobPilot
   login [urls...]    --user ID open this person's browser to sign in to job sites by hand
   locate             --user ID find office areas for the map (jobs scored before areas were recorded)
   status             --user ID job counts
-  mark <id> <status> --user ID e.g. mark li:123 submitted (after applying by hand)`;
+  mark <id> <status> --user ID e.g. mark li:123 submitted --cv tailored (after applying by hand; --cv tailored | standard)
+                               or mark li:123 skipped --reason "too senior" (scoring learns from it)
+  mark <id> <outcome> --user ID after applying: replied | interview | offer | rejected | no_reply | waiting
+  results            --user ID replies, interviews and follow-ups due
+  prep <id>          --user ID interview prep notes for a job you have an interview for`;
 
 const args = process.argv.slice(2);
 const cmd = args[0];
 const opt = f => { const i = args.indexOf(f); return i > -1 ? args[i + 1] : undefined; };
-const positional = args.slice(1).filter((a, i, all) => !a.startsWith('--') && !['--user', '--limit'].includes(all[i - 1]));
+const positional = args.slice(1).filter((a, i, all) => !a.startsWith('--') && !['--user', '--limit', '--cv', '--reason'].includes(all[i - 1]));
 
 function userFromArgs() {
   const id = opt('--user') || (listUsers().length === 1 ? listUsers()[0].id : null);
@@ -39,12 +43,13 @@ function userFromArgs() {
   return new User(id);
 }
 
-// Mirror console output into users/<id>/logs/<date>.log.
+// Mirror console output into users/<id>/logs/<date>.log. Written synchronously: the process exits
+// as soon as a command finishes, which would cut off a buffered stream's last lines (or all of them).
 function teeLog(user) {
   fs.mkdirSync(user.paths.logs, { recursive: true });
-  const f = fs.createWriteStream(path.join(user.paths.logs, `${today()}.log`), { flags: 'a' });
+  const file = path.join(user.paths.logs, `${today()}.log`);
   const orig = console.log;
-  console.log = (...a) => { orig(...a); f.write(a.join(' ') + '\n'); };
+  console.log = (...a) => { orig(...a); try { fs.appendFileSync(file, a.join(' ') + '\n'); } catch {} };
 }
 
 (async () => {
@@ -97,10 +102,28 @@ function teeLog(user) {
     case 'review': await require('./core/apply').review(user, store(), { ids: positional }); break;
     case 'login': await require('./core/login').login(user, positional); break;
     case 'status': console.table(store().counts()); break;
+    case 'prep': if (!positional[0]) throw new Error('Say which job: prep <id>'); await require('./core/prep').prep(user, store(), positional[0]); break;
+    case 'results': {
+      const r = require('./core/outcomes').stats(store()), t = r.total;
+      log(`applied ${t.applied}: heard back ${t.responded} (${t.responseRate}%), interviews ${t.interviews}, offers ${t.offers}, no reply ${t.noReply}`);
+      for (const [name, rows] of [['by source', r.bySource], ['by CV', r.byCv], ['by fit score', r.byScore]])
+        log(name + ': ' + rows.map(x => `${x.label} ${x.responded}/${x.applied}`).join(', '));
+      for (const n of r.nudges) log(`${n.nudge.kind === 'follow_up' ? 'follow up' : 'no reply?'}  ${n.nudge.days}d  ${n.company} | ${n.title}  (${n.id})`);
+      break;
+    }
     case 'mark': {
       const [id, status] = positional, s = store();
       if (!s.get(id)) throw new Error(`No job ${id}`);
-      s.update(id, { status, ...(status === 'submitted' ? { submittedAt: new Date().toISOString() } : {}) }, 'marked by hand'); s.save();
+      if (require('./core/outcomes').OUTCOMES[status]) {
+        if (s.get(id).status !== 'submitted') throw new Error(`Mark ${id} as submitted first`);
+        s.update(id, { outcome: status, outcomeAt: new Date().toISOString() }, 'marked by hand'); s.save();
+        log(`${id} outcome -> ${status}`); break;
+      }
+      const cv = opt('--cv');
+      if (cv && !['tailored', 'standard'].includes(cv)) throw new Error('--cv must be tailored or standard');
+      const at = new Date().toISOString();
+      const verdict = status === 'skipped' ? { verdict: 'no', reason: opt('--reason') || '', at } : status === 'submitted' ? { verdict: 'yes', at } : undefined;
+      s.update(id, { status, ...(verdict ? { verdict } : {}), ...(status === 'submitted' ? { submittedAt: at, ...(cv ? { cvUsed: cv } : {}) } : {}) }, 'marked by hand'); s.save();
       log(`${id} -> ${status}`); break;
     }
     default: console.log(HELP); process.exitCode = 1;

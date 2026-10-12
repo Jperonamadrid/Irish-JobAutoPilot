@@ -16,7 +16,8 @@ const DEFAULT_SETTINGS = {
     city: 'Dublin',
     remote: 'europe',        // none | country | europe | anywhere
     postedWithinDays: 3,
-    excludeCompanies: []     // never apply here (e.g. your current employer, the agency that placed you)
+    excludeCompanies: [],    // never apply here (e.g. your current employer, the agency that placed you)
+    followCompanies: []      // always search these companies' own job boards (names or careers-page links)
   },
   apply: {
     minSalary: 0,            // dealbreaker when a posting states a lower salary (0 = none)
@@ -29,13 +30,14 @@ const DEFAULT_SETTINGS = {
     companyCaps: { openai: { max: 5, days: 180 } }   // employers that publish an application limit
   },
   sources: { boards: true, linkedin: true, irishjobs: true, careerjet: true, publicjobs: true, jobsireland: true,
-    workable: true, jobicy: true, workday: true, jooble: false },
+    workable: true, jobicy: true, workday: true, jooble: false, recruitireland: true, remoteok: true },
   rules: { scoringGuidance: '', dealbreakers: '', writingRules: '', notes: '' },   // composed into rules.md
   // help = recommend jobs and make a tailored CV + letter for each; the person applies.
   // auto = also submit applications by itself, within the limits below. Only the person can turn it on.
   mode: 'help',
   auto: { consentAt: null, minScore: 80, dailyLimit: 10 },
   setupDone: false,
+  schedule: { on: false, time: '08:30', days: 'weekdays', lastRun: null },   // automatic daily run (see schedule.js)
   joobleKey: '',
   models: { score: 'haiku', answer: 'sonnet' }
 };
