@@ -43,12 +43,13 @@ function userFromArgs() {
   return new User(id);
 }
 
-// Mirror console output into users/<id>/logs/<date>.log.
+// Mirror console output into users/<id>/logs/<date>.log. Written synchronously: the process exits
+// as soon as a command finishes, which would cut off a buffered stream's last lines (or all of them).
 function teeLog(user) {
   fs.mkdirSync(user.paths.logs, { recursive: true });
-  const f = fs.createWriteStream(path.join(user.paths.logs, `${today()}.log`), { flags: 'a' });
+  const file = path.join(user.paths.logs, `${today()}.log`);
   const orig = console.log;
-  console.log = (...a) => { orig(...a); f.write(a.join(' ') + '\n'); };
+  console.log = (...a) => { orig(...a); try { fs.appendFileSync(file, a.join(' ') + '\n'); } catch {} };
 }
 
 (async () => {

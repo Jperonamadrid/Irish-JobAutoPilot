@@ -9,7 +9,7 @@
 // are fetched on every run whether or not a job board search turned them up.
 const path = require('path');
 const { log, getJson, getText, pool, norm, readJson, writeJson, SHARED_DIR, isBlocked } = require('./util');
-const { workableJobs, smartRecruitersJobs, parsePersonio } = require('./sources/boards');
+const { workableJobs, parsePersonio } = require('./sources/boards');
 
 const FILE = path.join(SHARED_DIR, 'boards.json');
 const FILLABLE = new Set(['greenhouse', 'ashby', 'lever', 'workable']);
@@ -27,7 +27,7 @@ const PROBES = {
   ashby: async s => (await getJson(`https://api.ashbyhq.com/posting-api/job-board/${s}`))?.jobs?.map(x => x.title),
   lever: async s => { const r = await getJson(`https://api.lever.co/v0/postings/${s}?mode=json`); return Array.isArray(r) ? r.map(x => x.text) : null; },
   workable: async s => (await workableJobs(s))?.map(x => x.title),
-  smartrecruiters: async s => (await smartRecruitersJobs(s))?.map(x => x.name),
+  smartrecruiters: async s => (await getJson(`https://api.smartrecruiters.com/v1/companies/${s}/postings?limit=100`))?.content?.map(x => x.name),
   recruitee: async s => (await getJson(`https://${s}.recruitee.com/api/offers/`))?.offers?.map(x => x.title),
   personio: async s => { const x = await getText(`https://${s}.jobs.personio.de/xml?language=en`); return x?.includes('<position>') ? parsePersonio(x).map(p => p.title) : null; }
 };

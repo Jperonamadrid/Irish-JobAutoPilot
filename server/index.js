@@ -269,11 +269,13 @@ const server = http.createServer(async (req, res) => {
 function startDueRuns() {
   if (task) return;
   for (const { id } of listUsers()) {
-    const u = new User(id);
-    if (!schedule.isDue(u.settings)) continue;
-    u.saveSettings({ schedule: { lastRun: schedule.localDate(new Date()) } });
-    try { startTask(id, 'run'); emit(`(started automatically: ${u.profile.fullName || id}'s daily run)`); } catch {}
-    return;
+    try {   // one person's unreadable settings must never stop the app or the others' runs
+      const u = new User(id);
+      if (!schedule.isDue(u.settings)) continue;
+      u.saveSettings({ schedule: { lastRun: schedule.localDate(new Date()) } });
+      startTask(id, 'run'); emit(`(started automatically: ${u.profile.fullName || id}'s daily run)`);
+      return;
+    } catch (e) { console.log(`automatic run for ${id} not started: ${e.message}`); }
   }
 }
 

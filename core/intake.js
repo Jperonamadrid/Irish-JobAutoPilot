@@ -90,7 +90,7 @@ function merge(user, store, jobs) {
     if (user.filters.excludedCompany(job.company)) continue;
     if (store.has(job)) {
       const old = store.get(job.id);   // fill gaps in older records
-      if (old) for (const k of ['description', 'postedAt', 'applyUrl', 'location', 'board', 'atsId']) if (!old[k] && job[k]) old[k] = job[k];
+      if (old) for (const k of ['description', 'postedAt', 'applyUrl', 'location', 'board', 'atsId', 'followed']) if (!old[k] && job[k]) old[k] = job[k];
       seen++; continue;
     }
     const other = store.duplicate(job);
