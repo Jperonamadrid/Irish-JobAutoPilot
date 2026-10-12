@@ -1,10 +1,9 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('fs');
-const os = require('os');
 const path = require('path');
 const zlib = require('zlib');
-require('./helpers');
+const { tempDir } = require('./helpers');
 const up = require('../core/update');
 
 // A GitHub-style .tar.gz: a pax global header, a top folder, and a long path in a pax header.
@@ -65,7 +64,7 @@ test('GitHub archives unpack without their top folder, long paths included, and 
 });
 
 test('installing a downloaded update replaces the app files and keeps your data', async () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'jp-update-'));
+  const root = tempDir('jp-update-');
   const write = (f, t) => { fs.mkdirSync(path.dirname(path.join(root, f)), { recursive: true }); fs.writeFileSync(path.join(root, f), t); };
   const pkg = v => JSON.stringify({ name: 'jobpilot', version: v, repository: 'github:Jperonamadrid/Irish-JobAutoPilot', dependencies: { a: '1' } });
   write('package.json', pkg('0.1.0')); write('package-lock.json', 'lock'); write('server/index.js', 'old'); write('users/me/cv.json', 'MY CV'); write('core/mine.js', 'kept');
@@ -82,7 +81,7 @@ test('installing a downloaded update replaces the app files and keeps your data'
 });
 
 test('an incomplete download changes nothing', async () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'jp-update-'));
+  const root = tempDir('jp-update-');
   fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify({ version: '0.1.0', repository: 'github:a/b' }));
   const tgz = tarGz([['r/package.json', '{"version":"0.2.0"}'], ['r/README.md', 'half']]);
   await assert.rejects(up.install({ root, git: false, say: () => {}, fetchImpl: async () => ({ ok: true, arrayBuffer: async () => tgz }) }), /incomplete/);
@@ -91,7 +90,7 @@ test('an incomplete download changes nothing', async () => {
 });
 
 test('dependencies are reinstalled only when they change', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'jp-update-'));
+  const root = tempDir('jp-update-');
   const before = { 'package.json': JSON.stringify({ version: '1.0.0', dependencies: { a: '1' } }), 'package-lock.json': 'L' };
   fs.writeFileSync(path.join(root, 'package-lock.json'), 'L');
   fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify({ version: '1.1.0', dependencies: { a: '1' } }));
