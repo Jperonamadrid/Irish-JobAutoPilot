@@ -19,3 +19,51 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm test
+
+  # The launchers restart JobPilot after an update (exit code 75), and must keep working when an
+  # update replaces them while they run. A stand-in server asks for one restart and, on its first
+  # start, rewrites the launcher with a line that must never run.
+  launcher:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    env:
+      JOBPILOT_SERVER: test/launcher/fake-server.js
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: start.sh restarts after an update and survives being replaced
+        if: runner.os != 'Windows'
+        run: |
+          LAUNCH_LOG="$RUNNER_TEMP/launch.log" LAUNCHER_FILE="$PWD/start.sh" bash start.sh | tee out.txt
+          test "$(cat "$RUNNER_TEMP/launch.log")" = "$(printf 'start 1\nstart 2')"
+          ! grep -q UPDATE-BROKE out.txt
+      - name: start.bat restarts after an update and survives scripts\start-windows.cmd being replaced
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: |
+          set LAUNCH_LOG=%RUNNER_TEMP%\launch1.log
+          set LAUNCHER_FILE=%CD%\scripts\start-windows.cmd
+          call start.bat > out1.txt 2>&1
+          type out1.txt & type %LAUNCH_LOG%
+          findstr /c:"start 2" %LAUNCH_LOG% || exit /b 1
+          findstr /c:"UPDATE-BROKE" out1.txt && exit /b 1
+          exit /b 0
+      - name: start.bat survives start.bat itself being replaced
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: |
+          git checkout -- scripts
+          set LAUNCH_LOG=%RUNNER_TEMP%\launch2.log
+          set LAUNCHER_FILE=%CD%\start.bat
+          call start.bat > out2.txt 2>&1
+          type out2.txt & type %LAUNCH_LOG%
+          findstr /c:"start 2" %LAUNCH_LOG% || exit /b 1
+          findstr /c:"UPDATE-BROKE" out2.txt && exit /b 1
+          exit /b 0

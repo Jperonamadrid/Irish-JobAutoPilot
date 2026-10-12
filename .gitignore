@@ -12,3 +12,6 @@ node_modules/
 logs/
 *.log
 .DS_Store
+
+# Node.js installed by the JobPilot installer
+runtime/

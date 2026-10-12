@@ -67,10 +67,13 @@ function connect() {
   const es = new EventSource('/api/events');
   es.addEventListener('log', e => {
     const line = JSON.parse(e.data);
-    for (const l of [$('#log'), $('#wizLog')]) if (l) { l.textContent += line + '\n'; l.scrollTop = l.scrollHeight; }
+    for (const l of [$('#log'), $('#wizLog'), $('#updLog')]) if (l) { l.textContent += line + '\n'; l.scrollTop = l.scrollHeight; }
   });
+  es.addEventListener('update', e => { state.update = JSON.parse(e.data); renderUpdate(); });
+  es.addEventListener('updated', e => waitForRestart(JSON.parse(e.data).version));
   es.addEventListener('result', e => {
     state.lastResult = JSON.parse(e.data);
+    if (state.lastResult?.name === 'update') overlay(null);
     if (state.lastResult && !state.lastResult.ok) toast('Something went wrong: ' + (state.lastResult.error || 'see the Activity log on Home'), 12000);
   });
   es.addEventListener('task', e => {
@@ -88,6 +91,55 @@ function connect() {
   es.onerror = () => { $('#taskState').textContent = 'Reconnecting…'; };
 }
 $('#stopTask').onclick = guard(() => api('/task', { method: 'DELETE' }));
+
+// ---- updates: the version in the top bar, a card on Home when a newer one is out ---------------------
+function overlay(title, text = '', withLog = false) {
+  $('#overlay').classList.toggle('hide', !title);
+  if (!title) return;
+  $('#ovTitle').textContent = title; $('#ovText').textContent = text; $('#updLog').classList.toggle('hide', !withLog);
+}
+async function loadUpdate(fresh) {
+  state.update = await api('/update' + (fresh ? '?fresh=1' : '')).catch(() => state.update);
+  renderUpdate();
+}
+function renderUpdate() {
+  const u = state.update; if (!u) return;
+  $('#ver').textContent = u.newer ? `v${u.current} · update available` : `v${u.current}`;
+  $('#ver').classList.toggle('new', !!u.newer);
+  const box = $('#updateBox'); if (!box) return;
+  let skipped = null; try { skipped = localStorage.getItem('jp-skip-update'); } catch {}
+  if (!u.newer || skipped === u.latest) { box.innerHTML = ''; return; }
+  box.innerHTML = `<div class="card update"><div class="row between wrap"><h2>✨ JobPilot ${esc(u.latest)} is out</h2><span class="muted small">you have ${esc(u.current)}</span></div>
+    ${u.notes.slice(0, 3).map(n => `<b class="small">What's new in ${esc(n.version)}</b><ul class="small">${n.items.map(i => `<li>${esc(i)}</li>`).join('')}</ul>`).join('')}
+    <p class="help">Takes a minute or two. Your CV, answers, jobs and settings are kept. JobPilot restarts by itself.</p>
+    <div class="row"><button class="primary" id="doUpdate">Update now</button><button class="ghost" id="laterUpdate">Later</button></div></div>`;
+  $('#laterUpdate').onclick = () => { try { localStorage.setItem('jp-skip-update', u.latest); } catch {} renderUpdate(); toast('OK. Click the version number at the top any time to update.'); };
+  $('#doUpdate').onclick = guard(async () => {
+    if (state.task) throw new Error(`Wait for "${state.task.label}" to finish first.`);
+    $('#updLog').textContent = '';
+    overlay(`Updating to JobPilot ${u.latest}…`, 'Keep this window and the JobPilot window open. This takes a minute or two.', true);
+    try { await post('/update', {}); } catch (e) { overlay(null); throw e; }
+  });
+}
+// After installing, the app restarts: wait until the new version answers, then reload the page.
+async function waitForRestart(version) {
+  overlay(`Updated to ${version}. Restarting JobPilot…`, 'This page reloads by itself in a few seconds.');
+  for (const t0 = Date.now(); Date.now() - t0 < 90000;) {
+    await new Promise(r => setTimeout(r, 2000));
+    const u = await fetch('/api/update', { headers: { 'X-JobPilot': '1' } }).then(r => r.ok ? r.json() : null).catch(() => null);
+    if (u?.current === version) return location.reload();
+  }
+  overlay('JobPilot was updated, but it did not start again by itself.', 'Open it again the usual way: double-click start.bat (Windows) or start.command / start.sh (Mac, Linux).');
+}
+$('#ver').onclick = guard(async () => {
+  try { localStorage.removeItem('jp-skip-update'); } catch {}
+  $('#ver').textContent = 'checking…';
+  await loadUpdate(true);
+  const u = state.update;
+  if (u?.error) toast('Could not check for updates: ' + u.error, 7000);
+  else if (u?.newer) window.scrollTo(0, 0);
+  else toast(`You have the latest version (${u?.current}).`);
+});
 const recommended = () => { const c = state.data?.counts || {}; return (c.ready || 0) + (c.manual || 0); };
 // A desktop notification when a long task finishes while you are looking at something else.
 function notifyDone(t, before) {
@@ -682,18 +734,25 @@ function renderStep() {
     bindModeChooser(); $('#saveStep').onclick = guard(async () => { await saveMode(); toast('Saved'); state.data = await api(`/users/${state.user}`); renderStep(); });
     return;
   }
-  const r = d.settings.rules || {};
-  body.innerHTML = `<div class="card"><h2>Fine-tuning (optional)</h2><p class="muted">Plain-English instructions the AI follows when scoring jobs and writing for you.</p>
+  const r = d.settings.rules || {}, md = d.settings.models || {};
+  const MODELS = [['opus', 'Claude Opus: best quality (default)'], ['sonnet', 'Claude Sonnet: faster, uses less of your Claude plan'], ['haiku', 'Claude Haiku: fastest, uses the least']];
+  const modelOpts = cur => MODELS.some(([v]) => v === cur) ? MODELS : [...MODELS, [cur, cur]];   // keep a pinned model id someone set by hand
+  body.innerHTML = `<div class="card"><h2>AI models</h2><p class="muted">Which Claude model does the work. Opus gives the best results; Sonnet or Haiku make runs quicker and use less of your Claude plan.</p><div class="grid2">
+      ${field('modelScore', 'Scoring jobs (many short checks every run)', md.score || 'opus', { options: modelOpts(md.score || 'opus'), help: 'Scoring is most of the AI use in a daily run. Haiku here cuts it the most.' })}
+      ${field('modelAnswer', 'Writing: CVs, cover letters, form answers, interview prep', md.answer || 'opus', { options: modelOpts(md.answer || 'opus') })}</div></div>
+    <div class="card"><h2>Fine-tuning (optional)</h2><p class="muted">Plain-English instructions the AI follows when scoring jobs and writing for you.</p>
       ${field('scoringGuidance', 'What makes a job a good or bad fit for you', r.scoringGuidance, { type: 'textarea', help: 'e.g. "Any job is fine if it pays better." "No sales-heavy roles."' })}
       ${field('dealbreakers', 'Other dealbreakers', r.dealbreakers, { type: 'textarea' })}
       ${field('writingRules', 'How your cover letters should sound', r.writingRules, { type: 'textarea', help: 'Leave empty for the default: plain, friendly, three short paragraphs.' })}
       ${field('notes', 'Anything else the AI should know', r.notes, { type: 'textarea' })}</div>
     <div class="card"><h2>What the AI reads</h2><pre class="log" style="height:auto;max-height:380px;background:var(--bg);color:var(--text)">${esc(d.rules)}</pre></div>${saveBar}`;
   $('#saveStep').onclick = guard(async () => {
-    await put(`/users/${state.user}/settings`, { rules: { scoringGuidance: val('scoringGuidance'), dealbreakers: val('dealbreakers'), writingRules: val('writingRules'), notes: val('notes') } });
+    await put(`/users/${state.user}/settings`, { models: { score: val('modelScore'), answer: val('modelAnswer') },
+      rules: { scoringGuidance: val('scoringGuidance'), dealbreakers: val('dealbreakers'), writingRules: val('writingRules'), notes: val('notes') } });
     toast('Saved'); state.data = await api(`/users/${state.user}`); renderStep();
   });
 }
 
 connect();
 loadUsers().catch(e => toast(e.message, 8000));
+loadUpdate(false);

@@ -49,3 +49,22 @@ test('interview prep is saved on the job, without em dashes', async () => {
   assert.strictEqual(p.pitch, 'I run identity, and automation.');
   assert.strictEqual(p.questions[0].answer, 'Ran it for 300 users.');
 });
+
+test('Claude Opus does all the AI work by default, and each kind of work can use another model', async () => {
+  const { DEFAULT_SETTINGS, MODEL_RE } = require('../core/user');
+  const { score } = require('../core/score');
+  assert.deepStrictEqual(DEFAULT_SETTINGS.models, { score: 'opus', answer: 'opus' });
+  const used = [];
+  llm.setAsk(async o => { used.push(o.model); return { results: [...o.prompt.matchAll(/### id: (\S+)/g)].map(m => ({ id: m[1], score: 50, dealbreaker: false, reason: 'x', area: '' })) }; });
+  const u = makeUser(), s = new Store(u.paths.jobs);
+  merge(u, s, [{ id: 'a', ats: 'external', company: 'A', title: 'Systems Administrator', url: 'a' }]);
+  await score(u, s);
+  const v = makeUser('Haiku', { settings: { models: { score: 'haiku' } } }), t = new Store(v.paths.jobs);
+  merge(v, t, [{ id: 'b', ats: 'external', company: 'B', title: 'Systems Administrator', url: 'b' }]);
+  await score(v, t);
+  llm.setAsk(null);
+  assert.deepStrictEqual(used, ['opus', 'haiku']);
+  assert.strictEqual(v.settings.models.answer, 'opus', 'writing keeps the default when only scoring is changed');
+  for (const ok of ['opus', 'sonnet', 'haiku', 'claude-opus-5-5']) assert.ok(MODEL_RE.test(ok), ok);
+  for (const bad of ['gpt-5', 'opus; rm -rf', '', 'Opus']) assert.ok(!MODEL_RE.test(bad), bad);
+});

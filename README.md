@@ -11,24 +11,42 @@ A job-search assistant that runs on your own computer. Give it your CV and it:
 
 > Built for job searches in Ireland (Dublin and remote across Europe). Other countries need a new preset in `presets/`.
 
-## What you need
+## Install (one step)
 
-| | |
-|---|---|
-| **Node.js 20+** | https://nodejs.org (LTS) |
-| **Claude Code**, signed in | https://claude.com/claude-code: the AI that scores jobs and writes for you. Uses your Claude subscription. |
-| **Google Chrome** | recommended: forms are filled in Chrome, and you sign in to job sites there |
+One command installs everything JobPilot needs and starts it. You only need a Claude account (Pro or higher) for the AI.
 
-Windows, macOS and Linux are supported. A desktop session is needed for the review step (a browser window opens).
+**Windows:** open **PowerShell** (Start menu → type `PowerShell`) and paste:
+```
+irm https://raw.githubusercontent.com/Jperonamadrid/Irish-JobAutoPilot/main/install/install.ps1 | iex
+```
 
-## Start
+**macOS / Linux:** open **Terminal** and paste:
+```
+curl -fsSL https://raw.githubusercontent.com/Jperonamadrid/Irish-JobAutoPilot/main/install/install.sh | bash
+```
 
-- **Linux / macOS:** double-click `start.sh` (macOS: `start.command`) or run `./start.sh`
-- **Windows:** double-click `start.bat` (step-by-step guide: [INSTALL-WINDOWS.md](INSTALL-WINDOWS.md))
+It takes about 5 minutes and installs only what is missing:
+- **JobPilot** itself, in your home folder (`JobPilot`). Running the installer again updates it and keeps your data.
+- **Node.js**, inside the JobPilot folder, if your computer does not already have version 20 or newer. No admin password is needed.
+- **Git for Windows** (Windows only), which Claude Code needs. Windows may ask you to allow it.
+- **The PDF/browser engine** and the rest of JobPilot's parts.
+- **Claude Code**, the AI JobPilot uses. The installer then opens it once so you can sign in.
+- **A shortcut** on your Desktop and in your Start menu or app menu.
 
-The first start installs everything (a minute or two). JobPilot then opens at **http://localhost:4317**. On Linux, `npm run shortcut` adds a menu/desktop icon.
+Afterwards, start JobPilot with the shortcut. It opens at **http://localhost:4317**. Keep its window open while you use it. Google Chrome is recommended for signing in to job sites, but JobPilot works without it.
 
-Check your setup any time with `npm run doctor`.
+Step-by-step help for Windows, including what to do if Windows warns you: [INSTALL-WINDOWS.md](INSTALL-WINDOWS.md). Check your setup any time with `npm run doctor` in the JobPilot folder.
+
+<details><summary>Installing by hand instead</summary>
+
+You need **Node.js 20+** (https://nodejs.org, LTS), **Claude Code** signed in (https://claude.com/claude-code) and, recommended, **Google Chrome**. Download or clone this repository, then double-click `start.bat` (Windows), `start.command` (macOS) or run `./start.sh` (Linux). The first start installs the rest. On Linux, `npm run shortcut` adds a menu icon.
+</details>
+
+## Updates
+
+JobPilot checks for a new version when it starts and every few hours. When one is out, the version number at the top turns green and Home shows **what's new** with an **Update now** button. Updating takes a minute or two; your CV, answers, jobs and settings are kept, and JobPilot restarts by itself. Click the version number any time to check. From a terminal: `node cli.js update --install`.
+
+*For the maintainer:* to release a version, raise `version` in `package.json`, add a section with the same number at the top of [CHANGELOG.md](CHANGELOG.md) (a test checks they match), and push to `main`. Everyone's JobPilot then offers it within a few hours.
 
 ## Using it
 
@@ -59,13 +77,21 @@ Several people can use one install: each has their own profile, CV, answers, job
 
 ## Privacy
 
-Everything stays on your computer in `users/<name>/` (CV, profile, answers, job list, browser logins). That folder is in `.gitignore` and must never be committed. The app listens on `127.0.0.1` only. Job text and your CV are sent to Claude (via Claude Code) to score jobs and write for you; nothing else leaves your machine except normal requests to job sites.
+Everything stays on your computer in `users/<name>/` (CV, profile, answers, job list, browser logins). That folder is in `.gitignore` and must never be committed. The app listens on `127.0.0.1` only. Job text and your CV are sent to Claude (via Claude Code) to score jobs and write for you; nothing else leaves your machine except normal requests to job sites and the update check (which only downloads JobPilot's version number and change list from GitHub; set `JOBPILOT_NO_UPDATE_CHECK=1` to turn it off).
 
 Your passwords are never stored by JobPilot. *Sign in to job sites* opens a normal Chrome window where you sign in yourself; only the site's login cookie stays in your profile folder.
 
 ## Cost
 
-AI calls go through your Claude Code plan. Typical usage measured at API prices: about **0.5¢ per job scored** and **10-15¢ per application prepared** (tailored CV, cover letter, answers). A daily run is usually **$1-3**.
+AI calls go through your Claude Code plan. JobPilot uses **Claude Opus** for everything by default, for the best scoring and writing. You can choose a model for each kind of work in **Profile → Fine-tuning → AI models** (or `node cli.js models <scoring> <writing>`):
+
+| | Best for | Plan use (current API prices per token) |
+|---|---|---|
+| **Opus** (default) | best judgement and writing | highest: about 2× Sonnet, 40× Haiku |
+| **Sonnet** | nearly as good, faster | about half of Opus |
+| **Haiku** | quick checks | a small fraction of Opus |
+
+Scoring jobs is most of the AI use in a daily run (one short check per new job), so setting **scoring to Haiku** and keeping **writing on Opus** cuts usage the most while keeping CVs and letters at their best. Measured with Haiku scoring and Sonnet writing, a daily run was about $1-3 at API prices; with Opus for everything expect several times that, or more of your plan's usage.
 
 ## How it works
 
@@ -78,6 +104,9 @@ core/sources/                boards.js (Greenhouse, Ashby, Lever, Workable, Work
 core/discover.js             finds a company's own job board from jobs seen elsewhere; companies you follow
 core/schedule.js             automatic daily run
 core/prep.js                 interview prep notes
+core/update.js               update check and one-click update
+install/                     one-step installers (install.ps1 for Windows, install.sh for macOS and Linux)
+start.sh, start.bat          launchers (restart JobPilot after an update; scripts/start-windows.cmd does the work on Windows)
 core/score.js                AI scoring in batches (cheap model)
 core/answers.js              form answers: profile → saved answers → rules → AI → ask you
 core/cv.js                   CV rendering (PDF + Word), per-job tailoring and the fact check

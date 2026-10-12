@@ -9,6 +9,8 @@ const { Store } = require('./core/store');
 
 const HELP = `JobPilot
   doctor                       check that everything needed is installed
+  models [score] [answer] --user ID   show or set the AI models (opus | sonnet | haiku), e.g. models haiku opus
+  update [--install]           is there a newer JobPilot? --install installs it (your data is kept)
   users                        list people set up on this computer
   create "<Full Name>"         add a person
   onboard <cv-file>  --user ID read a CV and build the profile
@@ -56,6 +58,14 @@ function teeLog(user) {
   const { cost } = require('./core/llm');
   switch (cmd) {
     case 'doctor': { const r = await require('./core/doctor').doctor(); for (const c of r) console.log(`${c.ok ? 'OK  ' : c.warn ? 'WARN' : 'FAIL'}  ${c.name}: ${c.detail}`); process.exitCode = r.some(c => !c.ok && !c.warn) ? 1 : 0; return; }
+    case 'update': {
+      const up = require('./core/update'), r = await up.check();
+      console.log(r.newer ? `JobPilot ${r.latest} is available (you have ${r.current}).` : `You have the latest JobPilot (${r.current}).`);
+      for (const n of r.notes) { console.log(`\n${n.version}${n.date ? ` (${n.date})` : ''}`); n.items.forEach(i => console.log('  - ' + i)); }
+      if (r.newer && args.includes('--install')) { await up.install({ say: m => console.log(m) }); console.log('Done. Start JobPilot again to use the new version.'); }
+      else if (r.newer) console.log('\nTo install it: node cli.js update --install   (or press Update in the app)');
+      return;
+    }
     case 'users': for (const u of listUsers()) console.log(`${u.id}\t${u.name}`); return;
     case 'create': { const u = createUser(positional.join(' ')); console.log(`created ${u.id}`); return; }
     case undefined: case 'help': case '--help': console.log(HELP); return;
@@ -102,6 +112,14 @@ function teeLog(user) {
     case 'review': await require('./core/apply').review(user, store(), { ids: positional }); break;
     case 'login': await require('./core/login').login(user, positional); break;
     case 'status': console.table(store().counts()); break;
+    case 'models': {
+      const { MODEL_RE } = require('./core/user');
+      const [score, answer] = positional;
+      for (const m of [score, answer].filter(Boolean)) if (!MODEL_RE.test(m)) throw new Error(`Unknown model "${m}": use opus, sonnet, haiku or a full claude-... id`);
+      if (score) user.saveSettings({ models: { score, ...(answer ? { answer } : {}) } });
+      log(`scoring jobs: ${user.settings.models.score}; writing: ${user.settings.models.answer}`);
+      break;
+    }
     case 'prep': if (!positional[0]) throw new Error('Say which job: prep <id>'); await require('./core/prep').prep(user, store(), positional[0]); break;
     case 'results': {
       const r = require('./core/outcomes').stats(store()), t = r.total;

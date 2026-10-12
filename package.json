@@ -1,9 +1,10 @@
 {
   "name": "jobpilot",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "Local job-search assistant: finds jobs, scores them against your CV, tailors your CV and cover letter, and pre-fills applications for you to review and submit.",
   "license": "MIT",
+  "repository": "github:Jperonamadrid/Irish-JobAutoPilot",
   "bin": {
     "jobpilot": "cli.js"
   },

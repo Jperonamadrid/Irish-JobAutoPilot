@@ -1,0 +1,78 @@
+name: installers
+# Runs the one-step installers for real on Windows, macOS and Linux: download this exact commit,
+# install Node.js into the JobPilot folder, install the app and its browser engine, then run the
+# installer again over the top (the update path) and check that a person's data is kept.
+# Claude Code is skipped (it needs a person to sign in).
+on:
+  push:
+    paths: ['install/**', 'start.sh', 'start.bat', 'scripts/**', 'package.json', 'package-lock.json', '.github/workflows/installers.yml']
+  workflow_dispatch:
+jobs:
+  unix:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    env:
+      JOBPILOT_REF: ${{ github.sha }}
+      JOBPILOT_NO_START: '1'
+      JOBPILOT_SKIP_CLAUDE: '1'
+      JOBPILOT_LOCAL_NODE: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install
+        run: JOBPILOT_DIR="$RUNNER_TEMP/JobPilot" bash install/install.sh
+      - name: Check the install
+        run: |
+          cd "$RUNNER_TEMP/JobPilot"
+          test -x runtime/node/bin/node && runtime/node/bin/node --version
+          test -d node_modules/playwright
+          PATH="$PWD/runtime/node/bin:$PATH" node cli.js help | head -3
+          PATH="$PWD/runtime/node/bin:$PATH" node -e "require('fs').accessSync(require('playwright').chromium.executablePath())"
+          mkdir -p users/me && echo '{"mine":true}' > users/me/cv.json
+      - name: Install again over the top (update) keeps your data
+        run: |
+          JOBPILOT_DIR="$RUNNER_TEMP/JobPilot" bash install/install.sh
+          grep -q '"mine":true' "$RUNNER_TEMP/JobPilot/users/me/cv.json"
+          test ! -d "$RUNNER_TEMP/JobPilot/core/core"
+      - name: The same, piped from curl the way people run it
+        run: curl -fsSL "https://raw.githubusercontent.com/${{ github.repository }}/${{ github.sha }}/install/install.sh" | JOBPILOT_DIR="$RUNNER_TEMP/JobPilot2" bash
+
+  windows:
+    runs-on: windows-latest
+    env:
+      JOBPILOT_REF: ${{ github.sha }}
+      JOBPILOT_NO_START: '1'
+      JOBPILOT_SKIP_CLAUDE: '1'
+      JOBPILOT_LOCAL_NODE: '1'
+    defaults:
+      run:
+        shell: powershell   # Windows PowerShell 5.1, what most people have
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install (piped into iex, the way people run it)
+        run: |
+          $env:JOBPILOT_DIR = "$env:RUNNER_TEMP\JobPilot"
+          Get-Content install\install.ps1 -Raw | Invoke-Expression
+      - name: Check the install
+        run: |
+          cd "$env:RUNNER_TEMP\JobPilot"
+          if (-not (Test-Path runtime\node\node.exe)) { throw 'no runtime\node' }
+          .\runtime\node\node.exe --version
+          if (-not (Test-Path node_modules\playwright)) { throw 'no node_modules' }
+          .\runtime\node\node.exe cli.js help | Select-Object -First 3
+          .\runtime\node\node.exe -e "require('fs').accessSync(require('playwright').chromium.executablePath())"
+          if ($LASTEXITCODE -ne 0) { throw 'browser engine missing' }
+          if (-not (Test-Path "$([Environment]::GetFolderPath('Desktop'))\JobPilot.lnk")) { throw 'no desktop shortcut' }
+          New-Item -ItemType Directory -Force users\me | Out-Null; Set-Content users\me\cv.json '{"mine":true}'
+      - name: Install again over the top (update) keeps your data
+        run: |
+          $env:JOBPILOT_DIR = "$env:RUNNER_TEMP\JobPilot"
+          Get-Content install\install.ps1 -Raw | Invoke-Expression
+          if (-not (Select-String -Path "$env:RUNNER_TEMP\JobPilot\users\me\cv.json" -Pattern '"mine":true' -Quiet)) { throw 'data lost' }
+          if (Test-Path "$env:RUNNER_TEMP\JobPilot\core\core") { throw 'nested copy' }
+      - name: The same, downloaded with irm the way people run it
+        run: |
+          $env:JOBPILOT_DIR = "$env:RUNNER_TEMP\JobPilot2"
+          irm "https://raw.githubusercontent.com/${{ github.repository }}/${{ github.sha }}/install/install.ps1" | iex
