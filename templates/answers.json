@@ -1,0 +1,122 @@
+{
+  "_help": "Rules are tried top to bottom against each form question (case-insensitive regular expression). First match wins. a = the answer; {{field}} is filled from profile.json, and an empty field means you are asked once instead. ASK = always ask you. DECLINE = choose the 'prefer not to say' option. SKIP = leave blank when optional. 'learned' holds answers you gave in the app (exact question text) and is checked before the rules.",
+  "learned": {},
+  "rules": [
+    {
+      "q": "without (the )?(use|help|assistance|aid) of (ai|artificial|any ai|generative)|(completed|filled|written|prepared).{0,40}(yourself|myself|personally|on my own)|not (used|use) (any )?(ai|automation|bots?|tools)|ai[- ]generated|use of ai",
+      "a": "ASK"
+    },
+    {
+      "q": "arbitrat|class action|jury trial",
+      "a": "ASK"
+    },
+    {
+      "q": "criminal|convict|offen[cs]e|background check.*(fail|issue)",
+      "a": "ASK"
+    },
+    {
+      "q": "non-?compete|post-employment|restrictive covenant|contractual obligations|non-?solicit|garden(ing)? leave",
+      "a": "ASK"
+    },
+    {
+      "q": "gender|\\brace\\b|ethnic|veteran|disabilit|sexual orientation|pronoun|transgender|hispanic|latin[oa]|age range|date of birth|religio|marital|caste|neurodiver|socio-?economic|first generation|lgbt",
+      "a": "DECLINE"
+    },
+    {
+      "q": "(require|need).{0,60}(sponsor|visa|work permit|immigration)|sponsorship",
+      "a": "{{needsSponsorship}}"
+    },
+    {
+      "q": "(what|which) (visa|permit|immigration status)|visa (status|type)|current visa",
+      "a": "{{visaStatus}}"
+    },
+    {
+      "q": "citizenship|nationality|passport",
+      "a": "{{nationality}}"
+    },
+    {
+      "q": "legally (authori[sz]ed|eligible|entitled|permitted)|right to work|authori[sz]ed to work|eligible to work|permission to work|allowed to work",
+      "a": "{{workAuthorized}}"
+    },
+    {
+      "q": "current(ly)? (or (most recent|previous) )?(employer|company)|most recent (employer|company)|previous employer|who is your (current|previous|most recent) employer|company name",
+      "a": "{{currentEmployer}}"
+    },
+    {
+      "q": "current(ly)? (or (most recent|previous) )?(job )?(title|position|role)|most recent (job )?(title|role)",
+      "a": "{{currentTitle}}"
+    },
+    {
+      "q": "countr(y|ies).{0,40}(anticipate|plan|intend|expect|want).{0,20}work|which countr.{0,30}work",
+      "a": "{{country}}"
+    },
+    {
+      "q": "country.{0,40}(reside|live|located|based)|country of residence|where do you (currently )?(live|reside)|country you (live|are based)",
+      "a": "{{country}}"
+    },
+    {
+      "q": "^(city|location)$|what city|which city|cities.*available|where are you (currently )?(located|based)|current (location|city)|based in dublin",
+      "a": "{{city}}, {{country}}"
+    },
+    {
+      "q": "(located|based|live|reside).{0,30}(emea|europe|\\beu\\b|ireland)|(emea|europe).{0,20}(based|located|region)",
+      "a": "{{basedInRegion}}"
+    },
+    {
+      "q": "(ever|previously|before) (been )?(employed|worked|contracted) (by|for|at|with)|former (employee|intern|contractor)|have you (ever )?worked (for|at)",
+      "a": "No"
+    },
+    {
+      "q": "\\b(ever|previously|before) (applied|interviewed)|\\bapplied (to|at|with) .{0,30} before",
+      "a": "No"
+    },
+    {
+      "q": "how did you (hear|find|learn|come across)|where did you (hear|find|see|learn)|source of (your )?application|how were you referred",
+      "a": "LinkedIn"
+    },
+    {
+      "q": "\\breferr(ed|al)\\b|\\bknow (anyone|someone|any employees)|\\breferred by|name of (your )?referr",
+      "a": "No"
+    },
+    {
+      "q": "salary|compensation|pay expectation|expected (base|pay|annual)|remuneration|desired pay|rate expectation",
+      "a": "{{salaryText}}"
+    },
+    {
+      "q": "notice period|how much notice|when (can|could|would) you (start|join)|earliest.{0,20}start|available to start|availability to (start|join)|start date",
+      "a": "{{noticePeriod}} notice"
+    },
+    {
+      "q": "(office|on-?site|in[- ]person|hybrid|anchor days).{0,120}(able|willing|commit|comfortable|agree)|(able|willing|commit|comfortable).{0,80}(office|on-?site|in[- ]person|hybrid)|commute",
+      "a": "{{onsiteOk}}"
+    },
+    {
+      "q": "shift|on-?call|weekend|out of hours|rota|night",
+      "a": "{{shiftWorkOk}}"
+    },
+    {
+      "q": "privacy (policy|notice|statement)|data (protection|processing|retention)|consent.{0,40}(process|retain|store|contact)|gdpr|candidate privacy|i (acknowledge|understand|agree|consent)",
+      "a": "Yes"
+    },
+    {
+      "q": "certify|attest|(information|answers|details) (provided |given |in this application )?(is|are) (true|accurate|correct|complete)",
+      "a": "Yes"
+    },
+    {
+      "q": "18 years|over the age|at least 18|legal age",
+      "a": "Yes"
+    },
+    {
+      "q": "linkedin",
+      "a": "{{linkedin}}"
+    },
+    {
+      "q": "website|portfolio|github|twitter|personal (site|blog)|^blog|other (links?|urls?)",
+      "a": "SKIP"
+    },
+    {
+      "q": "relocat",
+      "a": "I am already based in {{city}}, so no relocation is needed"
+    }
+  ]
+}

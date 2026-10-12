@@ -1,0 +1,25 @@
+{
+  "name": "jobpilot",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local job-search assistant: finds jobs, scores them against your CV, tailors your CV and cover letter, and pre-fills applications for you to review and submit.",
+  "license": "MIT",
+  "bin": {
+    "jobpilot": "cli.js"
+  },
+  "scripts": {
+    "start": "node server/index.js",
+    "test": "node --test test/*.test.js",
+    "doctor": "node cli.js doctor",
+    "shortcut": "node scripts/linux-shortcut.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "docx": "^9.10.0",
+    "mammoth": "^1.13.0",
+    "pdfjs-dist": "^6.4.299",
+    "playwright": "^1.63.0"
+  }
+}

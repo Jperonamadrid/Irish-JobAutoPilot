@@ -1,0 +1,14 @@
+# Personal data: never commit. Each person's CV, profile, answers, job list,
+# browser logins and generated files live under users/.
+users/
+data/
+*.env
+.env*
+credentials*
+*credentials*.txt
+
+# Generated / local
+node_modules/
+logs/
+*.log
+.DS_Store

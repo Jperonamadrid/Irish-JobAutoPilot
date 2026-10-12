@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>JobPilot</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%231F3A68'/><path d='M9 17l5 5 9-12' stroke='white' stroke-width='3.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header class="top">
+    <div class="brand"><span class="logo">✓</span> JobPilot</div>
+    <nav id="tabs">
+      <button data-tab="home" class="on">Home</button>
+      <button data-tab="jobs">Jobs</button>
+      <button data-tab="questions">Questions <span id="qcount" class="pill hide"></span></button>
+      <button data-tab="profile">Profile &amp; CV</button>
+    </nav>
+    <div class="who">
+      <select id="userSel" aria-label="Who is using JobPilot"></select>
+      <button id="addUser" class="ghost" title="Add a person">+ Person</button>
+    </div>
+  </header>
+
+  <main>
+    <!-- Welcome: no people yet -->
+    <section id="welcome" class="view hide">
+      <div class="card narrow">
+        <h1>Welcome to JobPilot</h1>
+        <p>JobPilot finds jobs that fit your CV, tailors your CV and cover letter for each one, and fills in the application form. <b>You check and submit every application yourself</b>; nothing is ever sent without you.</p>
+        <label>Your full name <input id="newName" placeholder="e.g. Maria Murphy"></label>
+        <button id="createFirst" class="primary">Get started</button>
+      </div>
+    </section>
+
+    <!-- Home -->
+    <section id="home" class="view">
+      <div id="setupBanner" class="banner hide"></div>
+      <div class="stats" id="stats"></div>
+      <div class="actions">
+        <button class="primary big" data-run="run">▶ Daily run<small>find new jobs, then prepare the best ones</small></button>
+        <button class="big" data-run="find">🔎 Find jobs<small>search every site and score the results</small></button>
+        <button class="big" data-run="prepare">📝 Prepare applications<small>tailored CV, cover letter, forms filled</small></button>
+        <button class="big accent" data-run="review">✅ Review &amp; submit<small>opens each form; you click Submit</small></button>
+        <button class="big ghost" data-run="login">🔑 Sign in to job sites<small>IrishJobs, Jobs.ie, LinkedIn</small></button>
+      </div>
+      <div class="card">
+        <div class="row between"><h2>Activity</h2><span><span id="taskState" class="muted">Idle</span> <button id="stopTask" class="danger small hide">Stop</button></span></div>
+        <pre id="log" class="log"></pre>
+      </div>
+    </section>
+
+    <!-- Jobs -->
+    <section id="jobs" class="view hide">
+      <div class="row between wrap">
+        <div id="jobFilters" class="chips"></div>
+        <input id="jobSearch" placeholder="Filter by company or title" class="search">
+      </div>
+      <div id="jobList"></div>
+    </section>
+
+    <!-- Questions -->
+    <section id="questions" class="view hide">
+      <div class="card"><p class="muted">These are questions from application forms that JobPilot could not answer safely from your profile. Answer each once: it is saved and reused on every future form that asks the same thing.</p></div>
+      <div id="qList"></div>
+    </section>
+
+    <!-- Profile -->
+    <section id="profile" class="view hide">
+      <div class="steps" id="steps">
+        <button data-step="cv" class="on">1. Your CV</button>
+        <button data-step="about">2. About you</button>
+        <button data-step="search">3. What you want</button>
+        <button data-step="rules">4. Fine-tuning</button>
+      </div>
+      <div id="stepBody"></div>
+    </section>
+  </main>
+
+  <div id="toast" class="toast hide"></div>
+  <script src="/app.js"></script>
+</body>
+</html>

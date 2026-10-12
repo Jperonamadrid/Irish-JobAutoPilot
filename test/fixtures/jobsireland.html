@@ -1,0 +1,623 @@
+
+<!-- Content
+================================================== -->
+
+
+<script type="text/javascript" src="https://maps.googleapis.com/maps/api/js?key=AIzaSyAtyTz8WQHSSS3WFQVCSAYPIoXJY1BZA5k"></script>
+
+
+
+<div style="display:none;">
+    <div id="qrcode"></div>
+</div>
+
+
+
+<div class="modal" id="LoaderModal" style="display: none;">
+    <div class="center">
+        
+        <img alt="loading panel" src="/Media/Default/images/logo/loader.gif" />
+    </div>
+</div>
+<div class="container" style="width:85%">
+    <div class="row">
+        <div class="searchBox " id="joblisting-box">
+            <div class="o-recentJobs__header">
+
+                <div class="m-inlineSearch">
+
+                    <form action="#" method="get" class="col-md-12 searchbar" id="contact">
+                        <h3>Search for your next job</h3>
+
+                        <fieldset>
+                            <div class="four columns search-home" style="margin-left: 0px; margin-right: 0px; padding-left: 15px; padding-right: 2px;">
+                                <span style="padding-left:2px;">Keyword</span>
+                                <input id="keyWord" class="searchfield" type="text" placeholder="Keywords e.g. (Nurse)" value="payroll"  aria-label="Enter a search Keyword">
+                            </div>
+                            <div class="four columns search-home" style="margin-left: 0px; margin-right: 0px; padding-left: 2px; padding-right: 2px;">
+                                <span style="padding-left:2px;">Location</span>
+                                <input id="location" class="searchfield" type="text" placeholder="Location" value="Dublin" aria-label="Enter a Location">
+                            </div>
+
+                            <div class="four columns search-home" style="margin-left: 0px; margin-right: 0px; padding-left: 2px; padding-right: 2px;">
+                                <span style="padding-left:2px;">Vacancy Type</span>
+                                <select class="searchfield" id="VacancyTypeId"  aria-label="Please select a Vacancy Type">
+                                    <option label="All" value="-1" selected="selected">All</option>
+                                    <option label="Paid Position" value="0">Paid Position</option>
+                                    <option label="Apprenticeship" value="4">Apprenticeship</option>
+                                    <option label="Self Employed" value="6">Self Employed</option>
+                                    <option label="Community Employment Programme" value="3">Community Employment Programme</option>
+                                    <option label="Work Placement Experience Programme" value="10">Work Placement Experience Programme</option>
+                                </select>
+                            </div>
+
+                            <div class="four columns search-home" style="margin-right: 0px; padding-left: 2px; padding-right: 400px;">
+                            </div>
+                            <div class="four columns search-home" style="margin-left: 0px; margin-right: 0px;padding-right: 20px;">
+                                <span style="padding-left:2px;">Working Arrangement</span>
+                                <select name="RemoteOrBlendedJobType" class="form-control valid" id="RemoteOrBlendedJobType" aria-invalid="false"
+                                        aria-label="Please select a Working Arrangement">
+                                    <option value="-1" selected style="display:none;">All Jobs</option>
+                                    <option value="-1">All</option>
+                                    
+                                    <option value="1">Remote/Blended</option>
+                                </select>
+
+                                
+                            </div>
+                            <div class="four columns search-home" style="margin-left: 0px; margin-right: 0px; padding-left: 2px; padding-right: 20px;">
+                                <span style="padding-left:2px;">Career Level</span>
+                                <select class="searchfield" data-val="true" data-val-number="The field CareerLevel must be a number."  aria-label="Please select a Career level"
+                                        data-val-required="The CareerLevel field is required." id="CareerlevelId" name="CareerlevelId" aria-describedby="CareerLevel-error" aria-invalid="false">
+                                    
+                                    <option value="-1" selected style="display:none;">Please select Career level</option>
+                                    <option value="8">Not Required</option>
+                                    <option value="1">Student</option>
+                                    <option value="2">Entry Level</option>
+                                    <option value="3">Experienced [Non-Managerial]</option>
+                                    <option value="4">Managerial</option>
+                                    <option value="5">Executive</option>
+                                    <option value="6">Senior Executive</option>
+                                    <option value="7">Professional</option>
+                                </select>
+                            </div>
+                            <div class="four columns search-home" style="margin-left: 0px; margin-right: 0px; padding-left: 2px; padding-right: 20px;">
+                                <span style="padding-left:2px;">Sector</span>
+                                <select name="NaceCode" class="form-control valid" id="NaceCode" aria-invalid="false"  aria-label="Please choose a Sector">
+                                    <option value="-1">Please choose a Sector</option>
+                                    <option value="A">agriculture, forestry and fishing</option>
+                                    <option value="B">mining and quarrying</option>
+                                    <option value="C">manufacturing</option>
+                                    <option value="D">electricity, gas, steam and air conditioning supply</option>
+                                    <option value="E">water supply; sewerage, waste management and remediation activities</option>
+                                    <option value="F">construction</option>
+                                    <option value="G">wholesale and retail trade; repair of motor vehicles and motorcycles</option>
+                                    <option value="H">transportation and storage</option>
+                                    <option value="I">accommodation and food service activities</option>
+                                    <option value="J">information and communication</option>
+                                    <option value="K">financial and insurance activities</option>
+                                    <option value="L">real estate activities</option>
+                                    <option value="M">professional, scientific and technical activities</option>
+                                    <option value="N">administrative and support service activities</option>
+                                    <option value="O">public administration and defence; compulsory social security</option>
+                                    <option value="P">education</option>
+                                    <option value="Q">human health and social work activities</option>
+                                    <option value="R">arts, entertainment and recreation</option>
+                                    <option value="S">other service activities</option>
+                                    <option value="U">activities of extraterritorial organisations and bodies</option>
+                                </select>
+                            </div>
+
+                            <div class="one columns search-home" role="button">
+                                <br />
+                                <a onclick="SearchJobs($('#VacancyTypeId').val(),$('#customid li.selected').attr('data-pagevalue'))" href="javascript:void(0)"
+                                   aria-label="Search for Jobs" class="button search-home">
+                                    <span></span>
+                                </a>
+                            </div>
+
+                        </fieldset>
+                    </form>
+
+                </div>
+
+            </div>
+
+        </div>
+
+    </div>
+
+    <br />
+
+    <div class="row">
+        <div class="col-md-12">
+
+            <div class="topjobslist">
+                <div class="topjob-listed">
+                    <div class="inner-width">
+                        <div class="m-ctaCreateProfile__block">
+
+                            <br /><br />
+							<div class="mapButton">
+								<a href="#" id="btnShow" class="btnShowClass emp-btn buttons active">
+									<i class="fa fa-map-marker"></i> Map
+								</a>
+							</div>
+                            <div id="dialog" style="display: none">
+                                <div id="dvMap" style="height: 650px; ">
+                                </div>
+                            </div>
+                            <div id="JDbox"></div>
+
+                            <h3 class="found-heading" role="alert">
+
+                                    1 job found Dublin
+                            </h3>
+                        </div>
+
+                        <div class="custom-box-items">
+                            <div class="custom-select">
+								
+                                <span class="wrap-drop-span" style="padding-left:200px;">Items per page</span>
+                                <div class="wrap-drop" id="noble-gases">
+                                    <span class="selected">10</span>
+                                    
+                                    <ul class="drop" id="customid">
+                                        <li class="paging selected" onclick="SearchJobs($('.vacancyFilter.active').attr('data-vacancyid'),this)" data-pageValue="10"><a>10</a></li>
+                                        <li class="paging" onclick="SearchJobs($('.vacancyFilter.active').attr('data-vacancyid'),this)" data-pageValue="25"><a>25</a></li>
+                                        <li class="paging" onclick="SearchJobs($('.vacancyFilter.active').attr('data-vacancyid'),this)" data-pageValue="50"><a>50</a></li>
+                                        <li class="paging" onclick="SearchJobs($('.vacancyFilter.active').attr('data-vacancyid'),this)" data-pageValue="100"><a>100</a></li>
+                                    </ul>
+                                </div>
+
+                                <div class="social-innner mobOpt" style="padding-right:100px;">
+                                    <div class="share-group shareClick">
+                                        <div class="share_icon">
+                                            <img src="/Media/Default/Images/share.png" aria-label="Share Button"><span>Share/Print</span>
+                                            <a href="#" role="presentation"><img id="arrow_down" src="\Media\Default\images\assets\icons\arrow_down.svg" aria-label="Down arrow"></a>
+                                        </div>
+                                        <div class="social-icons">
+
+                                            <div class="mobileSocial a2a_kit a2a_kit_size_32 a2a_default_style option-content is-hidden"
+                                                 style="display: none;">
+
+                                                <div class="" style="margin-top:50px;width:300px;margin-right:-300px;" >
+                                                    <input style="margin-left:35px;width:260px;" name="sharelink" type="text" aria-label="copy to share link" id="sharelink" value="https://jobsireland.ie/en-US/browse-jobs" />
+
+                                                    <img style="margin-top:-40px;width:35px;" class="" src="\Media\Default\images\share.jpg" alt="Share as Link">
+
+                                                    <a  onclick="copyToClipboard('sharelink')" style="margin-top:10px;margin-left: 210px;">copy link</a>
+
+                                                    <img style="margin-top:-15px;width:35px;" class="" src="\Media\Default\images\pdf.png" alt="Share as PDF">
+
+                                                    <a  onclick="DownloadPDFs()" style="margin-top:-25px;margin-left: 50px;">Create a Detailed PDF (Max 30)</a>
+
+                                                    <img style="margin-top:10px;width:35px;" class="" src="\Media\Default\images\pdf.png" alt="Share as PDF summary">
+
+                                                    <a  onclick="DownloadSummaryPDF()" style="margin-top:-25px;margin-left: 50px;">Create a Summary PDF  (Max 30)</a>
+
+                                                </div>
+
+                                                <a style="margin-left:0px;padding-left:0px; height:50%;" class="a2a_button_twitter" href="javascript:void(0)"><img src="\Media\Default\images\assets\icons\twitter.svg" alt="Twitter"></a>
+                                                <a style="margin-left: 0px; padding-left: 0px; height: 50%;" class="a2a_button_facebook" href="javascript:void(0)"><img src="\Media\Default\images\assets\icons\fb.svg" alt="Facebook"></a>
+                                                <a style="margin-left: 0px; padding-left: 0px; height: 50%;" class="a2a_button_linkedin" href="javascript:void(0)"><img src="\Media\Default\images\assets\icons\linkedin.svg"  alt="linkedin"></a>
+                                                <a style="height: 50px; margin-left: 0px; padding-left: 0px; height: 50%;" class="a2a_button_email" href="javascript:void(0)"><img src="\Media\Default\images\assets\icons\email.svg" alt="Email"></a>
+                                                <a style="height: 50px; margin-left: 0px; padding-left: 0px; height: 50%;" class="a2a_button_whatsapp" href="javascript:void(0)"><img src="\Media\Default\images\assets\icons\w_up.svg" alt="Whatsapp"></a>
+
+
+
+                                            </div>
+
+                                        </div>
+                                    </div>
+                                </div>
+
+                            </div>
+
+                            <div class="custom-select-favs hide pull-right" style="margin-top:-150px;">
+
+
+                                <div class="social-innner mobOpt" style="padding-right:10px;">
+                                    <div class="share-group shareClick">
+                                        <div class="share_icon" tabindex="0" >
+                                            <img src="/Media/Default/Images/share.png" alt="Share Image"><span>Download/Print</span>
+                                            <a aria-label="Expand to view Share options"><img id="arrow_down" src="\Media\Default\images\assets\icons\arrow_down.svg" role="presentation"  alt="Drill down arrow Image"></a>
+                                        </div>
+																				
+                                        <div class="favs-social-icons">
+
+											<div class="mobileSocialFav a2a_kit a2a_kit_size_32 a2a_default_style option-content  is-hidden"
+													 style="display: none;">
+
+													<div style="margin-top:0px;width:300px;margin-right:-30px;" class="">
+
+														<img style="margin-top:-10px;width:35px;" class="" src="\Media\Default\images\pdf.png" alt="PDF">
+
+														<a aria-label="Create a PDF"   onclick="DownloadFavs()" style="margin-top:-25px;margin-left: 40px;">Create a PDF to download</a>
+
+														<img style="margin-top:10px;width:35px;" class="" src="\Media\Default\images\pdf.png"  alt="Summary PDF">
+
+														<a aria-label="Create a Summary PDF"   onclick="DownloadSummaryFavs()" style="margin-top:-25px;margin-left: 40px;">Create a Summary PDF </a>
+
+													</div>
+
+
+											</div>
+                                        </div>
+                                    </div>
+									
+                                </div>
+										<br><br><br>*Note: Saved Jobs arent linked to your <br>
+										account so if you wish to store them -<br>
+										we recommend you print or download	<br><br>
+									
+                            </div>
+										
+                        </div>
+                        <div>
+                            <label id="infoLabel" aria-label="Click the below buttons to filter the jobs">Click button to filter jobs</label>
+                        </div>
+                        <div class="btn-group job-type" role="group" aria-label="Filter Options">
+                            <a href="javascript:void(0)" data-vacancyid="-1" aria-label="View All Job Types" class="all-btn button vacancyFilter filter-btn">ALL</a>
+                            <a href="javascript:void(0)" data-vacancyid="0" aria-label="Filter for PAID POSITION Job Type" class="position-btn button vacancyFilter filter-btn">PAID POSITION</a>
+                            <a href="javascript:void(0)" data-vacancyid="4" aria-label="Filter for APPRENTICESHIP Job Type" class="apprent-btn button vacancyFilter filter-btn">APPRENTICESHIP</a>
+                            <a href="javascript:void(0)" data-vacancyid="6" aria-label="Filter for SELF EMPLOYED Job Type" class="self-btn button vacancyFilter filter-btn">SELF EMPLOYED</a>
+                            <a href="javascript:void(0)" data-vacancyid="3" aria-label="Filter for CE Scheme Job Type" class="scheme-btn button vacancyFilter filter-btn">CE SCHEME</a>
+                            <a href="javascript:void(0)" data-vacancyid="10" aria-label="Filter for WPEP Job Type" class="yess-btn button vacancyFilter filter-btn">WPEP</a>
+                        </div>
+
+                        <br />
+                        <div class="job-description-box">
+                            <div class="row jobsList">
+
+
+
+<style class="ng-scope">
+    pre {
+        white-space: pre-wrap; /* Since CSS 2.1 */
+        white-space: -moz-pre-wrap; /* Mozilla, since 1999 */
+        white-space: -pre-wrap; /* Opera 4-6 */
+        white-space: -o-pre-wrap; /* Opera 7 */
+        word-wrap: break-word; /* Internet Explorer 5.5+ */
+    }
+</style>
+
+
+<div class="job-list full paginated job-description-box" id="jobslist">
+    <div class="row" > 
+        <input type="hidden" class="totaljobCount" value="1" />
+        <input type="hidden" class="totalCount" value="1" />
+                <div class="job-heading position-box" data-vacancyid = "2473166" tabindex="0" >
+				
+					<input type="hidden" id="JobId" value="2473166" />
+					<input type="hidden" id="JobReference" value="#JOB-2473166" />
+					<input type="hidden" id="CompanyLogo" value="https://dspazimages.blob.core.windows.net/images/3fxfpkhk-709577.jpg" />
+					<input type="hidden" id="JobTitle" value="Payroll Specialist" />
+					<input type="hidden" id="Location" value="Co. Dublin, " />
+					<input type="hidden" id="StartDate" value="2026-10-02T10:49:15" />
+					<input type="hidden" id="EndDate" value="2026-10-30T00:00:00" />
+					<input type="hidden" id="VacancyTypeId" value="0" />
+				
+                    <div class="paid-btn-box">
+                        <a href="#" class="paid-btn button position-paid">PAID POSITION</a>
+						<a class="btnSave pull-right" href="#"  style="width:80px;margin-top: 5px;padding-right: 400px" >
+							<img alt="icon for save job" style="width:129px;" class="btnSaveLogo" src="/Media/Default/images/assets/icons/SaveJob.png">
+						</a>
+                    </div>
+					
+                    <div class="job-detail-main-box">
+                        <div class="left-icon-box">
+                            <div class="flex-item">
+                                    <img src="https://dspazimages.blob.core.windows.net/images/3fxfpkhk-709577.jpg" id=2473166 onerror="imgErrorFunction(this)" alt="Logo of Gilligan Black Recruitment Ltd">
+                            </div>
+                        </div>
+                        <div class="job-detail-right-box">
+                            <div class="title-box" onclick="gotoJobDetail('2473166')">
+                                <div class="job-title-box">
+									<h3>Payroll Specialist</h3>
+
+                                </div>
+                            </div>
+                            <div class="d-flex">
+                                <div class="flex-item">
+                                    <ul id="sub-images">
+                                        <li><img src="\Media\Default\images\assets\icons\clips.svg"  alt="Icon for Job Reference"><span>Ref: #JOB-2473166</span></li>
+                                        <li><img src="\Media\Default\images\assets\icons\published.svg"  alt="Icon for Date of Publishing"><span>Published On: 02 Oct 2026</span></li>
+                                    </ul>
+                                </div>
+                                <div class="flex-item">
+                                    <ul id="sub-images">
+                                            <li><img src="\Media\Default\images\assets\icons\location.svg" alt="Icon for Location"><span>Co. Dublin, </span></li>
+
+
+                                        <li><img src="\Media\Default\images\assets\icons\closing.svg"  alt="Icon for Closing Date"><span>Closing On: 30 Oct 2026</span></li>
+                                    </ul>
+                                </div>
+                                
+                            </div>
+							<div class="flex-item end-btn" style="margin-left: 245px" >
+                                    
+                                    <a href="/en-US/job-Details?id=2473166" role="button" class="button search-home" aria-label="View details of Payroll Specialist"><span></span></a>
+                                </div>
+                        </div>
+						
+						<a class="hide pull-right btnSav" onclick="console.log('save 3')" href="#"  style="width:80px;margin-top: 45px;padding-right: 40px" >
+							<img alt="Icon for save job" style="width:30px;" class="btnSaveLog" src="https://upload.wikimedia.org/wikipedia/commons/1/1f/Eo_circle_green_heart.svg">
+						</a>
+						
+                    </div>
+
+                </div>
+    </div>
+
+        <div class="pagination-box" >
+            <div class="pagination pull-right pagination-sm pagination ng-isolate-scope ng-not-empty ng-valid ng-dirty ng-valid-parse" total-items="Pages" ng-model="PageNo" max-size="4" items-per-page="1" rotate="false" boundary-links="true">
+
+
+                    <li class="first_prepage disabled"><a href="Javascript:void(0)">Previous</a></li>
+                                                                                                    <li onclick="searchVacancy(1)" class=" active"><a href="Javascript:void(0)">1</a></li>
+
+
+                    <li class="disabled next_prepage"><a href="Javascript:void(0)">Next</a></li>
+            </div>
+
+
+
+
+        </div>
+            <div class="showing-entry">
+                <p> Showing 1 to 1 of 1 vacancies *</p>
+                <small class="small_jobvacancies">* Vacancies can contain more than one job/position</small>
+            </div>
+
+</div>
+
+<ul class="drop" id="longlats" style="display: none;">
+			<li>53.3542022705078;-6.27092981338501;Co. Dublin                                                                                          , ;Payroll Specialist;2473166;#JOB-2473166</li>
+</ul>
+
+
+
+
+
+
+
+
+
+                            </div>
+                            <div class="row allJobsList" style="display: none;">
+
+                            </div>
+                        </div>
+                        <div class="job-fav-box" style="display: none;">
+							<br/>
+                            <div class="row favjobsList">
+
+
+<style class="ng-scope">
+    pre {
+        white-space: pre-wrap; /* Since CSS 2.1 */
+        white-space: -moz-pre-wrap; /* Mozilla, since 1999 */
+        white-space: -pre-wrap; /* Opera 4-6 */
+        white-space: -o-pre-wrap; /* Opera 7 */
+        word-wrap: break-word; /* Internet Explorer 5.5+ */
+    }
+</style>
+
+
+<div class="job-list full paginated fav-job-description-box" id="jobslist">
+	
+    <div class="row favlist">
+        <input type="hidden" class="totaljobCount" value="1" />
+        <input type="hidden" class="totalCount" value="1" />
+            <div>
+                <div align="center">
+                    <h4></h4>					
+                </div>
+            </div>
+			<div class="favjob-heading hide" >
+
+				<div class="job-heading #boxclass" data-vacancyid = "#JobId" >
+				
+			        <input type="hidden" id="JobId" value="#JobId" />
+					<input type="hidden" id="JobReference" value="#JobReference" />
+					<input type="hidden" id="CompanyLogo" value="#CompanyLogo" />
+					<input type="hidden" id="JobTitle" value="#JobTitle" />
+					<input type="hidden" id="Location" value="#Location" />
+					<input type="hidden" id="StartDate" value="#StartDate" />
+					<input type="hidden" id="EndDate" value="#EndDate" />
+					<input type="hidden" id="VacancyTypeId" value="#VacancyTypeId" />
+
+					
+                    <div class="paid-btn-box ">
+												
+                        <a href="#" class="paid-btn button #jobtitleLabel">#jobLabel</a>
+						<a class="btnRemove pull-right" href="#"  style="width:80px;margin-top: 5px;padding-right: 400px" >
+							<img style="width:129px;" class="btnSaveLogo" alt="Icon for Save Job"
+							src="/Media/Default/images/assets/icons/JobSaved.png">
+						</a>
+                    </div>
+					<a onclick="" href="#"  style="width:50px; margin-top: 55px;padding-right: 100px" 
+					class="btnRemov hide" style="">
+											<img alt="Icon for Save Job" style="width:30px;" src="https://upload.wikimedia.org/wikipedia/commons/3/36/Eo_circle_blue-grey_white_heart.svg">
+						</a>
+					
+                    <div class="job-detail-main-box">
+                        <div class="left-icon-box">
+                            <div class="flex-item">                                
+								<img src="#CompanyLogo" alt="Company Logo">
+                            </div>
+                        </div>
+                        <div class="job-detail-right-box">
+                            <div class="title-box" onclick="gotoJobDetail('#JobId')">
+                                <div class="job-title-box">
+                                    <h3>#JobTitle</h3>
+
+
+                                </div>
+                            </div>
+                            <div class="d-flex">
+                                <div class="flex-item">
+                                    <ul id="sub-images">
+                                        <li><img src="\Media\Default\images\assets\icons\clips.svg"  alt="Icon for Job Reference">
+										    <span>Ref: #JobReference</span></li>
+                                        <li><img src="\Media\Default\images\assets\icons\published.svg"  alt="Icon for Date of Publishing">
+										    <span>Published On: #StartDate</span></li>
+                                    </ul>
+                                </div>
+								
+                                <div class="flex-item">
+                                    <ul id="sub-images">
+                                        
+										<li><img src="\Media\Default\images\assets\icons\location.svg" alt="Icon for Location">
+											   <span>#Location</span></li>
+
+                                        <li><img src="\Media\Default\images\assets\icons\closing.svg"   alt="Icon for Closing Date">
+										   <span>Closing On: #EndDate</span></li>
+                                    </ul>
+                                </div>
+
+								
+									
+                                
+								
+								
+									
+                            </div>
+							<div class="flex-item end-btn ">
+								
+								<a href="/en-US/job-Details?id=#JobId" class="button search-home"><span></span></a>
+								
+							</div>							
+							
+                        </div>
+						
+						
+						
+                    </div>
+					
+					
+								
+					
+
+                </div>
+			</div>
+    </div>
+
+
+</div>
+
+<ul class="drop" id="longlatsfav" style="display: none;">
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                            </div>
+
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+
+
+<section class="m-topCompanies" id="resource-section" onclick="gotoJobseekers()">
+    <div class="m-ctaCreateProfile">
+        <div class="m-ctaCreateProfile__container checkout-jobseeker">
+            <div class="m-ctaCreateProfile__block">
+                <a class="m-ctaCreateProfile__big popup-with-zoom-anim" href="#" data-mfp-src="#login-signup" magnificdiv="">
+                    <div class="m-ctaCreateProfile__title ">
+                        <h1 tabindex="0">Check out Jobseeker Resources here</h1>
+                    </div>
+                </a>
+            </div>
+            <br>
+            <div class="m-ctaCreateProfile__block">
+                <a href="#" class="button widget-btn resource-link" tabindex="0" role="button" aria-label="Check out Jobseeker Resources here">
+                    <span></span>
+                </a>
+            </div>
+        </div>
+    </div>
+</section>
+
+
+
+
+<script type="text/javascript">
+    function GenerateQRCode() {
+        new QRCode(document.getElementById("qrcode"), window.location.href);
+    }
+</script>
+
+
+<style>
+
+	
+
+    @media only screen and (max-device-width: 480px) {
+
+		.btnShowClass{
+			padding: 8px 10px !important;
+		
+		}
+	
+		.mobileSocial{
+			width:150px;
+			margin-left: 50px;
+			margin-right: 5px;
+        }
+		
+		.mobileSocialFav
+		{
+			margin-left: 5px;
+			margin-right: -50px;
+        }
+		.favs-social-icons .option-content {
+            width: 100% !important;
+            left: -10px !important;
+        }
+	
+		.mapButton {
+			margin-top: -30px;
+			margin-left: -50px;
+			padding: 25px 25px !important;
+        }
+
+        .m-ctaCreateProfile__block {
+            margin-top: 0px !important;
+        }
+
+        .wrap-drop-span {
+            padding-left: 125px !important;
+        }
+
+        .social-icons .option-content {
+            width: 200% !important;
+            left: -150px !important;
+        }
+
+        .is-hidden {
+            display: block;
+        }
+    }
+</style>

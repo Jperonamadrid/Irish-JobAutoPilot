@@ -1,0 +1,13 @@
+{
+  "name": "Test Person",
+  "contact": ["t@example.com", "+353 1 234 5678", { "text": "LinkedIn", "url": "https://www.linkedin.com/in/test" }, "Dublin, Ireland"],
+  "summary": "Systems administrator with 5 years in regulated environments, cutting MTTR by 20%.",
+  "skills": [["Infrastructure", "Windows Server, Linux, VMware"], ["Identity", "Entra ID, Okta"]],
+  "experience": [
+    { "id": "acme", "company": "Acme", "location": "Dublin, Ireland", "dates": "2022 to Present", "title": "Systems Administrator",
+      "bullets": ["Ran Entra ID for 300 users across 4 offices.", "Cut MTTR by 20% with PowerShell automation.", "Led a disaster recovery test across 3 environments."] },
+    { "id": "contracts", "company": "Contract Engagements", "location": "Dublin, Ireland", "dates": "2020 to 2022", "intro": "Short contracts.",
+      "roles": [{ "id": "beta", "title": "Support Engineer", "company": "Beta Ltd", "bullets": ["Resolved 40 tickets a day.", "Wrote 12 runbooks."] }] }
+  ],
+  "education": [{ "degree": "BSc Computing", "dates": "2019", "lines": [{ "text": "First class honours" }] }]
+}
