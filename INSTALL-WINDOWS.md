@@ -1,55 +1,55 @@
 # Installing JobPilot on Windows
 
-About 15 minutes, once. You need an internet connection and a Claude account (Pro or higher) for the AI.
+About 5 minutes, once. You need an internet connection and a Claude account (Pro or higher) for the AI.
 
-## 1. Install the four things it needs
+## 1. Run the installer
 
-Install each with the default options (just keep clicking **Next**):
-
-1. **Node.js (LTS)**: https://nodejs.org → "Windows Installer (.msi)"
-2. **Git for Windows**: https://git-scm.com/download/win (Claude Code uses it)
-3. **Google Chrome**: https://www.google.com/chrome/ (skip if you already have it)
-4. **Claude Code**: open **PowerShell** (Start menu → type `PowerShell`) and paste:
+1. Open **PowerShell**: click Start, type `PowerShell`, press Enter.
+2. Copy this line, paste it into PowerShell (right-click pastes), and press Enter:
    ```
-   irm https://claude.ai/install.ps1 | iex
+   irm https://raw.githubusercontent.com/Jperonamadrid/Irish-JobAutoPilot/main/install/install.ps1 | iex
    ```
-   When it finishes, close PowerShell, open a new one, type `claude` and press Enter. Sign in with your Claude account in the browser window that opens. Then type `/exit`.
 
-## 2. Get JobPilot
+It installs everything JobPilot needs. Each part is only installed if it is missing:
+- **JobPilot** goes into your user folder\JobPilot. Your CV and job list will live there too.
+- **Node.js** goes inside the JobPilot folder. No admin rights are needed.
+- **Git for Windows** is needed by Claude Code. Windows may ask *"Do you want to allow this app to make changes?"*: click **Yes**.
+- **The PDF engine** and the rest of JobPilot's parts.
+- **Claude Code**, the AI. When it asks you to sign in, a Claude Code window opens:
+  1. Follow its steps and sign in with your Claude account in the browser.
+  2. Type `/exit`.
+  3. Close that window.
+- **Shortcuts** on your Desktop and in the Start menu.
 
-**Option A, with a download (simplest):** whoever has access to the GitHub repository opens it, clicks **Code → Download ZIP**, and gives you the ZIP file. Right-click it → **Extract All…** → put it somewhere easy such as `Documents\JobPilot`.
+At the end JobPilot starts and your browser opens **http://localhost:4317**.
 
-**Option B, with Git (easy updates later):** if you have been added to the repository, open PowerShell and run:
-```
-cd $HOME\Documents
-git clone https://github.com/Jperonamadrid/Irish-JobAutoPilot.git JobPilot
-```
+## 2. Use it
 
-## 3. Start it
+- Start JobPilot with the **JobPilot** icon on your Desktop. **Leave the black window open** while you use it; closing it stops the app.
+- Click **Get started** and follow the steps:
+  1. Upload your CV.
+  2. Check your details.
+  3. Take the career quiz (optional).
+  4. Pick job titles.
+  5. Choose how to apply.
+  6. Run the first market scan.
+- To use your IrishJobs / Jobs.ie / LinkedIn accounts, press **Sign in to job sites** on Home, sign in on each tab, then close that Chrome window.
 
-Open the JobPilot folder and **double-click `start.bat`**.
+## Updating
 
-- If Windows says "Windows protected your PC", click **More info → Run anyway** (it is a plain script you can open in Notepad to check).
-- The first start installs what it needs (2-5 minutes). After that, your browser opens **http://localhost:4317**.
-- **Leave the black window open** while you use JobPilot. Closing it stops the app.
+JobPilot tells you when a new version is out: the version number at the top turns green and Home shows **Update now**. Click it and JobPilot updates and restarts by itself, keeping your data.
 
-For a desktop icon, right-click `start.bat` → **Show more options → Send to → Desktop (create shortcut)**.
-
-## 4. Use it
-
-Click **Get started** and follow the steps: upload your CV, check your details, take the career quiz (optional), pick job titles, choose how to apply, run the first market scan.
-
-To use your IrishJobs / Jobs.ie / LinkedIn accounts, press **Sign in to job sites** on Home, sign in on each tab, then close that Chrome window.
-
-## Updating later
-
-- **Option A (ZIP):** download the new ZIP and copy everything over the old folder **except the `users` folder** (that is your CV, answers and jobs: never delete it).
-- **Option B (Git):** in PowerShell, `cd $HOME\Documents\JobPilot` then `git pull`.
+Running the installer line again also updates it.
 
 ## If something does not work
 
-In the JobPilot folder, click the address bar, type `cmd`, press Enter, and run:
-```
-npm run doctor
-```
-It checks every part and says what to fix in plain words.
+- **"Running scripts is disabled on this system":** paste this first, then the installer line again:
+  ```
+  Set-ExecutionPolicy -Scope Process Bypass
+  ```
+- **Windows SmartScreen** warns about `start.bat`: click **More info → Run anyway**. It is a plain script you can open in Notepad to check.
+- **Anything else:** open the JobPilot folder, click the address bar, type `cmd`, press Enter, and run:
+  ```
+  runtime\node\npm.cmd run doctor
+  ```
+  (or `npm run doctor` if you installed Node.js yourself). It checks every part and says what to fix in plain words.

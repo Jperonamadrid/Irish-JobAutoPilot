@@ -10,7 +10,7 @@
 </head>
 <body>
   <header class="top">
-    <div class="brand"><span class="logo">✓</span> JobPilot</div>
+    <div class="brand"><span class="logo">✓</span> JobPilot <button id="ver" class="ver" title="Check for updates"></button></div>
     <nav id="tabs">
       <button data-tab="home" class="on">Home</button>
       <button data-tab="jobs">Jobs</button>
@@ -43,6 +43,7 @@
     </section>
 
     <section id="home" class="view">
+      <div id="updateBox"></div>
       <div id="modeBanner" class="mode"></div>
       <div class="stats" id="stats"></div>
       <div class="actions" id="actions"></div>
@@ -90,6 +91,7 @@
   </main>
 
   <div id="toast" class="toast hide"></div>
+  <div id="overlay" class="overlay hide"><div class="card narrow"><h2 id="ovTitle"></h2><p id="ovText" class="muted"></p><pre id="updLog" class="log" style="height:160px"></pre></div></div>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
   <script src="/app.js"></script>
 </body>

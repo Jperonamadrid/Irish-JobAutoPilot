@@ -9,6 +9,7 @@ const { Store } = require('./core/store');
 
 const HELP = `JobPilot
   doctor                       check that everything needed is installed
+  update [--install]           is there a newer JobPilot? --install installs it (your data is kept)
   users                        list people set up on this computer
   create "<Full Name>"         add a person
   onboard <cv-file>  --user ID read a CV and build the profile
@@ -56,6 +57,14 @@ function teeLog(user) {
   const { cost } = require('./core/llm');
   switch (cmd) {
     case 'doctor': { const r = await require('./core/doctor').doctor(); for (const c of r) console.log(`${c.ok ? 'OK  ' : c.warn ? 'WARN' : 'FAIL'}  ${c.name}: ${c.detail}`); process.exitCode = r.some(c => !c.ok && !c.warn) ? 1 : 0; return; }
+    case 'update': {
+      const up = require('./core/update'), r = await up.check();
+      console.log(r.newer ? `JobPilot ${r.latest} is available (you have ${r.current}).` : `You have the latest JobPilot (${r.current}).`);
+      for (const n of r.notes) { console.log(`\n${n.version}${n.date ? ` (${n.date})` : ''}`); n.items.forEach(i => console.log('  - ' + i)); }
+      if (r.newer && args.includes('--install')) { await up.install({ say: m => console.log(m) }); console.log('Done. Start JobPilot again to use the new version.'); }
+      else if (r.newer) console.log('\nTo install it: node cli.js update --install   (or press Update in the app)');
+      return;
+    }
     case 'users': for (const u of listUsers()) console.log(`${u.id}\t${u.name}`); return;
     case 'create': { const u = createUser(positional.join(' ')); console.log(`created ${u.id}`); return; }
     case undefined: case 'help': case '--help': console.log(HELP); return;

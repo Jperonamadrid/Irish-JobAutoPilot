@@ -12,6 +12,8 @@ const { openQuestions, answer, fillProblems } = require('../core/questions');
 const { composeRules } = require('../core/rules');
 const outcomes = require('../core/outcomes');
 const schedule = require('../core/schedule');
+const update = require('../core/update');
+const { SHARED_DIR } = require('../core/util');
 
 const PORT = +process.env.PORT || 4317;
 const WEB = path.join(ROOT, 'web');
@@ -116,6 +118,13 @@ async function api(req, res, url) {
       return send(res, 200, r);
     }
     return send(res, 200, { ok: true, detail: 'Claude Code is ready' });
+  }
+  if (parts[0] === 'update') {
+    if (m === 'GET') {
+      if (url.searchParams.get('fresh')) await checkForUpdate();
+      return send(res, 200, { ...updateState, current: update.VERSION, method: fs.existsSync(path.join(ROOT, '.git')) ? 'git' : 'download' });
+    }
+    return send(res, 200, installUpdate());
   }
   if (parts[0] === 'quiz') return send(res, 200, require('../core/careers').QUIZ);
   if (parts[0] === 'doctor') return send(res, 200, await require('../core/doctor').doctor({ skipAi: url.searchParams.get('ai') !== '1' }));
@@ -264,6 +273,37 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
+// ---- updates ---------------------------------------------------------------------------------------------
+// Checks GitHub for a newer version when the app starts and every 6 hours (JOBPILOT_NO_UPDATE_CHECK=1
+// turns this off). Installing is always your choice: the page shows what is new and an Update button.
+let updateState = { latest: null, newer: false, notes: [], checkedAt: null, error: null, installing: false };
+async function checkForUpdate() {
+  if (process.env.JOBPILOT_NO_UPDATE_CHECK) return;
+  try { Object.assign(updateState, await update.check(), { error: null }); }
+  catch (e) { updateState.error = e.message; updateState.checkedAt = new Date().toISOString(); }
+  broadcast('update', { ...updateState, current: update.VERSION });
+}
+const RESTARTED = path.join(SHARED_DIR, 'restarted-after-update');
+function installUpdate() {
+  if (task) throw Object.assign(new Error(`Wait for "${TASKS[task.name].label}" to finish (or press Stop), then update.`), { status: 409 });
+  if (updateState.installing) throw Object.assign(new Error('The update is already being installed.'), { status: 409 });
+  updateState.installing = true;
+  history.length = 0;
+  emit(`▶ Updating JobPilot from ${update.VERSION}…`);
+  update.install({ say: line => emit(line) }).then(r => {
+    emit(`✔ Updated to ${r.version}. Restarting…`);
+    broadcast('updated', { version: r.version });
+    fs.mkdirSync(SHARED_DIR, { recursive: true }); fs.writeFileSync(RESTARTED, r.version);
+    // Exit code 75 asks start.sh / start.bat to start the new version (see those files).
+    setTimeout(() => { server.close(); process.exit(update.RESTART_CODE); }, 1500);
+  }).catch(e => {
+    updateState.installing = false;
+    emit(`✖ Update failed: ${e.message}`);
+    broadcast('result', { name: 'update', ok: false, error: `Update failed: ${e.message}`, at: Date.now() });
+  });
+  return { ok: true };
+}
+
 // Automatic daily runs: once a minute, start the first one that is due (one task at a time, so
 // several people's runs simply go one after another).
 function startDueRuns() {
@@ -296,8 +336,11 @@ if (require.main === module) {
     setTimeout(() => process.exit(0), 1500);
   });
   server.listen(PORT, '127.0.0.1', () => {
-    console.log(`JobPilot is running at ${link}  (keep this window open; press Ctrl+C to stop)`);
-    openBrowser(link);
+    console.log(`JobPilot ${update.VERSION} is running at ${link}  (keep this window open; press Ctrl+C to stop)`);
+    // After an update the page that asked for it is still open and reloads by itself.
+    if (fs.existsSync(RESTARTED)) fs.rmSync(RESTARTED, { force: true }); else openBrowser(link);
+    setTimeout(checkForUpdate, 10000);
+    setInterval(checkForUpdate, 6 * 3600000);
     setTimeout(startDueRuns, 20000);   // catch up shortly after opening (gives the page time to load)
     setInterval(startDueRuns, 60000);
   });
