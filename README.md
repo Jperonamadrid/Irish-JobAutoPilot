@@ -24,7 +24,7 @@ Windows, macOS and Linux are supported. A desktop session is needed for the revi
 ## Start
 
 - **Linux / macOS:** double-click `start.sh` (macOS: `start.command`) or run `./start.sh`
-- **Windows:** double-click `start.bat`
+- **Windows:** double-click `start.bat` (step-by-step guide: [INSTALL-WINDOWS.md](INSTALL-WINDOWS.md))
 
 The first start installs everything (a minute or two). JobPilot then opens at **http://localhost:4317**. On Linux, `npm run shortcut` adds a menu/desktop icon.
 
