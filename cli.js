@@ -15,8 +15,13 @@ const HELP = `JobPilot
   search             --user ID find new jobs (no AI)
   score              --user ID score new jobs with AI
   find               --user ID search + score
-  prepare [--limit N] [ids...] --user ID   tailor CV, write letter, fill forms (never submits)
-  run                --user ID find + prepare (the daily run)
+  prepare [--limit N] [ids...] --user ID   fill forms (submits only in auto-apply mode, within its limits)
+  run                --user ID daily run: find, score, CV + letter packs, (auto mode) submit, market report
+  scan               --user ID first market scan (last 14 days), then the same as run
+  kits [ids...]      --user ID tailored CV + cover letter for recommended jobs
+  market             --user ID rebuild the market report
+  careers <answers.json> --user ID career explorer from quiz answers
+  keywords           --user ID rebuild search keywords from the job titles
   review [ids...]    --user ID open prepared applications so YOU can check and submit them
   login [urls...]    --user ID open this person's browser to sign in to job sites by hand
   locate             --user ID find office areas for the map (jobs scored before areas were recorded)
@@ -67,15 +72,27 @@ function teeLog(user) {
     case 'score': await require('./core/score').score(user, store()); break;
     case 'find': { const s = store(); await require('./core/intake').intake(user, s); await require('./core/score').score(user, s); break; }
     case 'prepare': await require('./core/apply').prepare(user, store(), { ids: positional, limit: opt('--limit') && +opt('--limit') }); break;
-    case 'run': {
+    case 'run': case 'scan': {
+      // run = daily run. scan = first market scan (looks back 14 days instead of a few).
       const s = store();
-      await require('./core/intake').intake(user, s);
+      await require('./core/intake').intake(user, s, cmd === 'scan' ? { days: 14 } : {});
       await require('./core/score').score(user, s);
-      await require('./core/apply').prepare(user, s);
-      const c = s.counts();
-      log(`done. Prepared and waiting for your review: ${c.ready_to_submit || 0}. Need your answers: ${c.needs_input || 0}. To apply by hand: ${c.manual || 0}.`);
+      await require('./core/kit').makeKits(user, s);
+      if (user.settings.mode === 'auto') await require('./core/apply').prepare(user, s);
+      await require('./core/market').report(user, s);
+      const c = s.counts(), autoToday = s.where(j => j.autoSubmitted && (j.submittedAt || '').slice(0, 10) === new Date().toISOString().slice(0, 10)).length;
+      log(`done. Recommended for you: ${(c.ready || 0) + (c.manual || 0)}.` + (user.settings.mode === 'auto'
+        ? ` Submitted automatically today: ${autoToday}. Need your answers: ${c.needs_input || 0}.` : ' Each has a tailored CV and cover letter ready.'));
       break;
     }
+    case 'kits': await require('./core/kit').makeKits(user, store(), { ids: positional }); break;
+    case 'market': await require('./core/market').report(user, store()); break;
+    case 'careers': {
+      const answers = positional[0] ? JSON.parse(fs.readFileSync(positional[0], 'utf8')) : {};
+      await require('./core/careers').explore(user, answers);
+      break;
+    }
+    case 'keywords': await require('./core/onboard').refineKeywords(user, user.settings.search.titles); log('search keywords updated from your titles'); break;
     case 'locate': await require('./core/score').locateAreas(user, store()); break;
     case 'review': await require('./core/apply').review(user, store(), { ids: positional }); break;
     case 'login': await require('./core/login').login(user, positional); break;
@@ -89,4 +106,6 @@ function teeLog(user) {
     default: console.log(HELP); process.exitCode = 1;
   }
   if (cost() > 0) log(`AI usage this run: about $${cost().toFixed(2)} at API prices`);
-})().catch(e => { console.log('ERROR: ' + e.message); process.exitCode = 1; });
+})().catch(e => { console.log('ERROR: ' + e.message); process.exitCode = 1; })
+  // Always finish: close the background PDF engine and exit, so the app never waits on a task forever.
+  .finally(async () => { await require('./core/browser').closePdf().catch(() => {}); process.exit(process.exitCode || 0); });

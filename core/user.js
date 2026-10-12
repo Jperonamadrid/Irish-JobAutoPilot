@@ -24,11 +24,18 @@ const DEFAULT_SETTINGS = {
     maxPerRun: 25,
     maxPerCompanyPerRun: 2,
     tailorCv: true,
+    kitsPerRun: 10,          // tailored CV + cover letter packs made per run
+    maxScorePerRun: 300,     // AI scoring cap per run (the rest wait for the next run)
     companyCaps: { openai: { max: 5, days: 180 } }   // employers that publish an application limit
   },
   sources: { boards: true, linkedin: true, irishjobs: true, careerjet: true, publicjobs: true, jobsireland: true,
     workable: true, jobicy: true, workday: true, jooble: false },
   rules: { scoringGuidance: '', dealbreakers: '', writingRules: '', notes: '' },   // composed into rules.md
+  // help = recommend jobs and make a tailored CV + letter for each; the person applies.
+  // auto = also submit applications by itself, within the limits below. Only the person can turn it on.
+  mode: 'help',
+  auto: { consentAt: null, minScore: 80, dailyLimit: 10 },
+  setupDone: false,
   joobleKey: '',
   models: { score: 'haiku', answer: 'sonnet' }
 };

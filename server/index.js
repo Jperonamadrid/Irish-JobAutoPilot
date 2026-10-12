@@ -29,8 +29,9 @@ function emit(line) { history.push(line); if (history.length > 400) history.shif
 
 const TASKS = {
   onboard: { label: 'Reading your CV' }, search: { label: 'Searching for jobs' }, score: { label: 'Scoring jobs' },
-  find: { label: 'Finding and scoring jobs' }, prepare: { label: 'Preparing applications' }, run: { label: 'Daily run' },
-  review: { label: 'Review and submit' }, login: { label: 'Signing in to job sites' }
+  find: { label: 'Finding and scoring jobs' }, prepare: { label: 'Filling in application forms' }, run: { label: 'Daily run' },
+  scan: { label: 'Scanning the job market' }, kits: { label: 'Making tailored CVs and cover letters' }, market: { label: 'Building the market report' },
+  careers: { label: 'Exploring career options' }, review: { label: 'Review and submit' }, login: { label: 'Signing in to job sites' }
 };
 function startTask(userId, name, args = []) {
   if (task) throw Object.assign(new Error(`"${TASKS[task.name].label}" is still running. Wait for it or press Stop.`), { status: 409 });
@@ -74,12 +75,14 @@ function userSummary(u) {
   const store = new Store(u.paths.jobs);
   return { id: u.id, profile: u.profile, settings: { ...u.settings, joobleKey: u.settings.joobleKey ? '••••' : '' }, ready: u.ready,
     hasCv: fs.existsSync(u.paths.cv), counts: store.counts(), onboarding: readJson(u.p('onboarding.json'), null),
-    questions: openQuestions(store).length, rules: u.rules() };
+    questions: openQuestions(store).length, rules: u.rules(), hasMarket: fs.existsSync(u.p('market.json')), hasCareers: fs.existsSync(u.p('careers.json')),
+    autoToday: store.where(j => j.autoSubmitted && (j.submittedAt || '').slice(0, 10) === new Date().toISOString().slice(0, 10)).length };
 }
 
 const jobView = j => ({ id: j.id, title: j.title, company: j.company, location: j.location, url: j.url, source: j.source, ats: j.ats,
   status: j.status, score: j.score, reason: j.reason, postedAt: j.postedAt, firstSeen: j.firstSeen, submittedAt: j.submittedAt,
-  screenshot: j.screenshot, cvPdf: j.cvPdf, error: j.error, problems: fillProblems(j), pending: j.pending || [] });
+  screenshot: j.screenshot, cvPdf: j.cvPdf, error: j.error, problems: fillProblems(j), pending: j.pending || [], kit: j.kit || null,
+  autoSubmitted: !!j.autoSubmitted, submittedShot: j.submittedShot, canFill: ['greenhouse', 'ashby', 'lever', 'workable'].includes(j.ats) });
 
 // ---- routes ------------------------------------------------------------------------------------------
 async function api(req, res, url) {
@@ -92,6 +95,7 @@ async function api(req, res, url) {
     clients.add(res); req.on('close', () => clients.delete(res));
     return;
   }
+  if (parts[0] === 'quiz') return send(res, 200, require('../core/careers').QUIZ);
   if (parts[0] === 'doctor') return send(res, 200, await require('../core/doctor').doctor({ skipAi: url.searchParams.get('ai') !== '1' }));
   if (parts[0] === 'task') {
     if (m === 'GET') return send(res, 200, publicTask());
@@ -110,11 +114,19 @@ async function api(req, res, url) {
   if (what === 'profile' && m === 'PUT') { u.saveProfile(await json(req)); composeRules(u); return send(res, 200, userSummary(u)); }
   if (what === 'settings' && m === 'PUT') {
     const b = await json(req);
+    // Auto-apply can only be switched on with the person's explicit consent; switching back to
+    // "help me apply" withdraws it, so turning auto on again asks again.
+    if (b.mode === 'auto') {
+      if (b.autoConsent !== true) return send(res, 400, { error: 'Tick the box to confirm you want applications submitted automatically.' });
+      b.auto = { ...(b.auto || {}), consentAt: new Date().toISOString() };
+    }
+    if (b.mode === 'help') b.auto = { ...(b.auto || {}), consentAt: null };
+    delete b.autoConsent;
     if (b.joobleKey === '••••') delete b.joobleKey;
     // Arrays replace rather than merge.
     const cur = readJson(u.paths.settings, {});
-    for (const k of ['search', 'apply', 'sources', 'rules']) if (b[k]) cur[k] = { ...(cur[k] || {}), ...b[k] };
-    for (const k of ['joobleKey', 'preset']) if (b[k] !== undefined) cur[k] = b[k];
+    for (const k of ['search', 'apply', 'sources', 'rules', 'auto']) if (b[k]) cur[k] = { ...(cur[k] || {}), ...b[k] };
+    for (const k of ['joobleKey', 'preset', 'mode', 'setupDone']) if (b[k] !== undefined) cur[k] = b[k];
     writeJson(u.paths.settings, cur); u.reload(); composeRules(u);
     return send(res, 200, userSummary(u));
   }
@@ -146,6 +158,27 @@ async function api(req, res, url) {
     if (!allowed.includes(b.status)) return send(res, 400, { error: 'bad status' });
     s.update(id, { status: b.status, ...(b.status === 'submitted' ? { submittedAt: new Date().toISOString() } : {}) }, 'changed in the app'); s.save();
     return send(res, 200, jobView(s.get(id)));
+  }
+  if (what === 'titles' && m === 'POST') {
+    const b = await json(req);
+    const titles = [...new Set((b.titles || []).map(t => String(t).trim()).filter(Boolean))];
+    if (!titles.length) return send(res, 400, { error: 'Choose at least one job title' });
+    await require('../core/onboard').refineKeywords(u, titles);
+    return send(res, 200, userSummary(new User(u.id)));
+  }
+  if (what === 'careers-picks' && m === 'PUT') {
+    const c = require('../core/careers').load(u), b = await json(req);
+    if (!c) return send(res, 404, { error: 'take the quiz first' });
+    c.options.forEach((o, i) => { o.picked = !!b.picks?.[i]; });
+    writeJson(u.p('careers.json'), c);
+    return send(res, 200, { ok: true });
+  }
+  if (what === 'market') return send(res, 200, require('../core/market').load(u));
+  if (what === 'careers') {
+    if (m === 'GET') return send(res, 200, require('../core/careers').load(u));
+    const b = await json(req);
+    const f = u.p('quiz-answers.json'); writeJson(f, b.answers || {});
+    return send(res, 200, startTask(u.id, 'careers', [f]));
   }
   if (what === 'map') {
     // Jobs worth seeing (not skipped/duplicates), with a rough location from core/geo.js.

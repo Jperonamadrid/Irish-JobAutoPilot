@@ -1,5 +1,5 @@
 // Scores new jobs against the person's CV and rules, in batches, with the cheap model.
-const { log, pool } = require('./util');
+const { log, pool, norm } = require('./util');
 const { ask } = require('./llm');
 const { plainText } = require('./cvtext');
 const { AUTO_FILL } = require('./intake');
@@ -27,9 +27,21 @@ function candidateBrief(user) {
     '', '# Candidate rules', user.rules(), '', '# CV', plainText(user.cv())].join('\n');
 }
 
+// Most relevant first: titles matching more of the person's search words, then newest. Each run
+// scores at most apply.maxScorePerRun jobs so a broad search stays quick and cheap; the rest wait.
+function relevance(user, j) {
+  const t = ` ${norm(j.title)} `;
+  const hits = user.settings.search.titles.filter(x => norm(x).split(' ').every(w => t.includes(` ${w}`))).length * 3 +
+    user.settings.search.includeKeywords.filter(k => t.includes(` ${norm(k)} `)).length;
+  return hits * 1e13 + (Date.parse(j.postedAt || j.firstSeen) || 0);
+}
+
 async function score(user, store) {
-  const todo = store.where(j => j.status === 'new');
-  if (!todo.length) return log('scoring: nothing new to score');
+  const all = store.where(j => j.status === 'new');
+  if (!all.length) return log('scoring: nothing new to score');
+  const cap = user.settings.apply.maxScorePerRun || 300;
+  const todo = all.sort((a, b) => relevance(user, b) - relevance(user, a)).slice(0, cap);
+  if (all.length > cap) log(`scoring the ${cap} most relevant of ${all.length} new jobs now; the other ${all.length - cap} are scored on the next runs`);
   const brief = candidateBrief(user);
   const { threshold } = user.settings.apply;
   const batches = [];

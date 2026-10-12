@@ -177,7 +177,7 @@ async function cvFor(user, job) {
     const t = await tailor(user, job);
     if (t) {
       const r = await render(t, dir);
-      if (r.pages <= 2) { writeJson(path.join(dir, 'cv.json'), t); return { pdf: r.pdf, summary: t.summary, tailored: true }; }
+      if (r.pages <= 2) { writeJson(path.join(dir, 'cv.json'), t); return { pdf: r.pdf, summary: t.summary, tailored: true, tailoredCv: t }; }
       log('tailored CV ran over 2 pages, using the standard CV');
     }
   } catch (e) { log('CV tailoring failed, using the standard CV:', e.message); }

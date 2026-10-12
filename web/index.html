@@ -14,9 +14,11 @@
     <nav id="tabs">
       <button data-tab="home" class="on">Home</button>
       <button data-tab="jobs">Jobs</button>
+      <button data-tab="market">Market</button>
       <button data-tab="map">Map</button>
+      <button data-tab="careers">Careers</button>
       <button data-tab="questions">Questions <span id="qcount" class="pill hide"></span></button>
-      <button data-tab="profile">Profile &amp; CV</button>
+      <button data-tab="profile">Profile</button>
     </nav>
     <div class="who">
       <select id="userSel" aria-label="Who is using JobPilot"></select>
@@ -25,34 +27,30 @@
   </header>
 
   <main>
-    <!-- Welcome: no people yet -->
     <section id="welcome" class="view hide">
       <div class="card narrow">
         <h1>Welcome to JobPilot</h1>
-        <p>JobPilot finds jobs that fit your CV, tailors your CV and cover letter for each one, and fills in the application form. <b>You check and submit every application yourself</b>; nothing is ever sent without you.</p>
+        <p>JobPilot reads your CV, shows you the job market, recommends jobs that fit, and makes a tailored CV and cover letter for each one. It can also apply for you if you want.</p>
         <label>Your full name <input id="newName" placeholder="e.g. Maria Murphy"></label>
         <button id="createFirst" class="primary">Get started</button>
       </div>
     </section>
 
-    <!-- Home -->
+    <section id="setup" class="view hide">
+      <ol class="wizard" id="wizSteps"></ol>
+      <div id="wizBody"></div>
+    </section>
+
     <section id="home" class="view">
-      <div id="setupBanner" class="banner hide"></div>
+      <div id="modeBanner" class="mode"></div>
       <div class="stats" id="stats"></div>
-      <div class="actions">
-        <button class="primary big" data-run="run">▶ Daily run<small>find new jobs, then prepare the best ones</small></button>
-        <button class="big" data-run="find">🔎 Find jobs<small>search every site and score the results</small></button>
-        <button class="big" data-run="prepare">📝 Prepare applications<small>tailored CV, cover letter, forms filled</small></button>
-        <button class="big accent" data-run="review">✅ Review &amp; submit<small>opens each form; you click Submit</small></button>
-        <button class="big ghost" data-run="login">🔑 Sign in to job sites<small>IrishJobs, Jobs.ie, LinkedIn</small></button>
-      </div>
+      <div class="actions" id="actions"></div>
       <div class="card">
         <div class="row between"><h2>Activity</h2><span><span id="taskState" class="muted">Idle</span> <button id="stopTask" class="danger small hide">Stop</button></span></div>
         <pre id="log" class="log"></pre>
       </div>
     </section>
 
-    <!-- Jobs -->
     <section id="jobs" class="view hide">
       <div class="row between wrap">
         <div id="jobFilters" class="chips"></div>
@@ -61,27 +59,28 @@
       <div id="jobList"></div>
     </section>
 
-    <!-- Map -->
+    <section id="market" class="view hide"><div id="marketBody"></div></section>
+
     <section id="map" class="view hide">
       <div class="row between wrap"><div id="mapFilters" class="chips"></div><span id="mapNote" class="muted"></span></div>
-      <div class="mapwrap"><div id="leaflet"></div>
-        <aside id="mapSide"></aside></div>
+      <div class="mapwrap"><div id="leaflet"></div><aside id="mapSide"></aside></div>
       <p class="help">Locations are approximate (area centres from the job's location or description), not exact office addresses.</p>
     </section>
 
-    <!-- Questions -->
+    <section id="careers" class="view hide"><div id="careersBody"></div></section>
+
     <section id="questions" class="view hide">
-      <div class="card"><p class="muted">These are questions from application forms that JobPilot could not answer safely from your profile. Answer each once: it is saved and reused on every future form that asks the same thing.</p></div>
+      <div class="card"><p class="muted">Questions from application forms that JobPilot could not answer safely from your profile. Answer each once: it is saved and reused on every future form that asks the same thing.</p></div>
       <div id="qList"></div>
     </section>
 
-    <!-- Profile -->
     <section id="profile" class="view hide">
       <div class="steps" id="steps">
-        <button data-step="cv" class="on">1. Your CV</button>
-        <button data-step="about">2. About you</button>
-        <button data-step="search">3. What you want</button>
-        <button data-step="rules">4. Fine-tuning</button>
+        <button data-step="cv" class="on">Your CV</button>
+        <button data-step="about">About you</button>
+        <button data-step="search">What you want</button>
+        <button data-step="mode">How to apply</button>
+        <button data-step="rules">Fine-tuning</button>
       </div>
       <div id="stepBody"></div>
     </section>

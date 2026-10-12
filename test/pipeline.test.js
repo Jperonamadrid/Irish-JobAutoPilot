@@ -46,3 +46,17 @@ test('one answer clears the same question on every waiting job', () => {
   assert.strictEqual(s.get('a').status, 'ready');
   assert.strictEqual(s.get('b').status, 'needs_input', 'still waiting on its other question');
 });
+
+test('a broad search scores the most relevant jobs first, up to the cap', async () => {
+  const u = makeUser('Cap', { settings: { search: { titles: ['Payroll Specialist'], includeKeywords: ['payroll', 'finance'], excludeKeywords: [] }, apply: { maxScorePerRun: 2 } } });
+  const s = new Store(u.paths.jobs);
+  merge(u, s, [{ id: 'f', ats: 'external', company: 'A', title: 'Finance Clerk', url: 'f' }, { id: 'p', ats: 'external', company: 'B', title: 'Payroll Specialist', url: 'p' },
+    { id: 'q', ats: 'external', company: 'C', title: 'Finance Assistant', url: 'q' }]);
+  let seen = [];
+  llm.setAsk(async ({ prompt }) => { seen = [...prompt.matchAll(/### id: (\w+)/g)].map(m => m[1]); return { results: seen.map(id => ({ id, score: 50, dealbreaker: false, reason: 'x', area: '' })) }; });
+  await score(u, s);
+  llm.setAsk(null);
+  assert.strictEqual(seen.length, 2);
+  assert.ok(seen.includes('p'), 'the exact title match is scored first');
+  assert.strictEqual(s.where(j => j.status === 'new').length, 1, 'the rest wait for the next run');
+});

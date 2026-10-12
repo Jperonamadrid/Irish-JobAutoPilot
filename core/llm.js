@@ -3,12 +3,31 @@
 // Tests replace the implementation with setAsk() so nothing calls the real model.
 const { spawn, spawnSync } = require('child_process');
 
+const fs = require('fs');
+const path = require('path');
+
+// How to start Claude Code. On Windows it is claude.exe (native installer) or an npm "claude.cmd"
+// wrapper; a .cmd needs a shell that would mangle our JSON arguments, so run its JS entry with node.
+let resolved;
+function claudeCommand() {
+  if (resolved) return resolved;
+  if (process.platform !== 'win32') return (resolved = { cmd: 'claude', pre: [] });
+  const found = (spawnSync('where', ['claude'], { encoding: 'utf8' }).stdout || '').split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+  const exe = found.find(p => /\.exe$/i.test(p));
+  if (exe) return (resolved = { cmd: exe, pre: [] });
+  const wrapper = found.find(p => /\.cmd$/i.test(p));
+  const entry = wrapper && path.join(path.dirname(wrapper), 'node_modules', '@anthropic-ai', 'claude-code', 'cli.js');
+  if (entry && fs.existsSync(entry)) return (resolved = { cmd: process.execPath, pre: [entry] });
+  return (resolved = { cmd: 'claude', pre: [] });
+}
+
 let spent = 0;
 function realAsk({ model, system, prompt, schema, timeout = 300000 }) {
   const args = ['-p', '--model', model, '--tools', '', '--strict-mcp-config', '--no-session-persistence',
     '--setting-sources', '', '--output-format', 'json', '--system-prompt', system, '--json-schema', JSON.stringify(schema)];
+  const { cmd, pre } = claudeCommand();
   return new Promise((resolve, reject) => {
-    const p = spawn('claude', args, { stdio: ['pipe', 'pipe', 'pipe'] });
+    const p = spawn(cmd, [...pre, ...args], { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
     let out = '', err = '';
     const timer = setTimeout(() => { p.kill('SIGTERM'); reject(new Error('claude timed out')); }, timeout);
     p.on('error', e => { clearTimeout(timer); reject(new Error(`could not start Claude Code (${e.code}). Is it installed? Run: npm run doctor`)); });
@@ -33,7 +52,8 @@ const cost = () => spent;
 
 // Used by the doctor check: is the CLI installed, and can it answer a tiny prompt?
 async function check() {
-  const v = spawnSync('claude', ['--version'], { encoding: 'utf8' });
+  const { cmd, pre } = claudeCommand();
+  const v = spawnSync(cmd, [...pre, '--version'], { encoding: 'utf8', windowsHide: true });
   if (v.error) return { ok: false, detail: 'Claude Code is not installed (https://claude.com/claude-code)' };
   try {
     const r = await realAsk({ model: 'haiku', system: 'Reply with the JSON requested.', prompt: 'Return {"ok": true}.',

@@ -2,7 +2,8 @@
 const $ = s => document.querySelector(s);
 const $$ = s => [...document.querySelectorAll(s)];
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const state = { user: null, data: null, tab: 'home', step: 'cv', jobFilter: 'ready_to_submit', task: null };
+const eur = n => n == null ? '–' : '€' + Math.round(n).toLocaleString('en-IE');
+const state = { user: null, data: null, tab: 'home', step: 'cv', wiz: 0, jobFilter: 'recommended', task: null, mapFilter: '' };
 
 async function api(path, opts = {}) {
   const r = await fetch('/api' + path, { ...opts, headers: { 'X-JobPilot': '1', ...(opts.body && !(opts.body instanceof Blob) ? { 'Content-Type': 'application/json' } : {}), ...(opts.headers || {}) } });
@@ -12,16 +13,18 @@ async function api(path, opts = {}) {
 }
 const put = (p, b) => api(p, { method: 'PUT', body: JSON.stringify(b) });
 const post = (p, b) => api(p, { method: 'POST', body: JSON.stringify(b) });
-function toast(msg, ms = 3500) { const t = $('#toast'); t.textContent = msg; t.classList.remove('hide'); clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.add('hide'), ms); }
-const guard = fn => async (...a) => { try { await fn(...a); } catch (e) { toast(e.message, 6000); } };
+function toast(msg, ms = 4000) { const t = $('#toast'); t.textContent = msg; t.classList.remove('hide'); clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.add('hide'), ms); }
+const guard = fn => async (...a) => { try { await fn(...a); } catch (e) { toast(e.message, 7000); } };
+const file = p => `/api/users/${state.user}/file?path=${encodeURIComponent(p)}`;
+const runTask = async (name, args) => { await post('/task', { user: state.user, name, args }); };
 
-// ---- people ------------------------------------------------------------------------------------------
+// ---- people & top-level views ---------------------------------------------------------------------------
 async function loadUsers(select) {
   const users = await api('/users');
-  $('#welcome').classList.toggle('hide', users.length > 0);
-  $$('.view').forEach(v => v.id !== 'welcome' && v.classList.toggle('hide', !users.length || v.id !== state.tab));
-  $('#tabs').classList.toggle('hide', !users.length); $('.who').classList.toggle('hide', !users.length);
-  if (!users.length) return;
+  const none = !users.length;
+  $('#welcome').classList.toggle('hide', !none);
+  $('#tabs').classList.toggle('hide', none); $('.who').classList.toggle('hide', none);
+  if (none) { $$('.view').forEach(v => v.id !== 'welcome' && v.classList.add('hide')); return; }
   const keep = select || localStorage.getItem('jp-user');
   state.user = users.find(u => u.id === keep)?.id || users[0].id;
   $('#userSel').innerHTML = users.map(u => `<option value="${esc(u.id)}" ${u.id === state.user ? 'selected' : ''}>${esc(u.name)}</option>`).join('');
@@ -31,140 +34,421 @@ async function refresh() {
   if (!state.user) return;
   localStorage.setItem('jp-user', state.user);
   state.data = await api(`/users/${state.user}`);
-  renderHome();
   const q = state.data.questions; $('#qcount').textContent = q; $('#qcount').classList.toggle('hide', !q);
-  if (state.tab === 'jobs') renderJobs();
-  if (state.tab === 'questions') renderQuestions();
-  if (state.tab === 'profile') renderStep();
+  if (!state.data.settings.setupDone) return showSetup();
+  $('#tabs').classList.remove('hide');
+  if (state.tab === 'setup') state.tab = 'home';
+  showTab(state.tab);
 }
-$('#userSel').onchange = guard(async e => { state.user = e.target.value; await refresh(); });
+$('#userSel').onchange = guard(async e => { state.user = e.target.value; state.wiz = 0; await refresh(); });
 $('#addUser').onclick = guard(async () => {
   const name = prompt('Full name of the person to add:');
   if (!name?.trim()) return;
-  const u = await post('/users', { name });
-  await loadUsers(u.id); showTab('profile'); state.step = 'cv'; renderStep();
+  const u = await post('/users', { name }); state.wiz = 0; await loadUsers(u.id);
 });
 $('#createFirst').onclick = guard(async () => {
   const name = $('#newName').value.trim(); if (!name) return toast('Enter your name first');
-  const u = await post('/users', { name }); state.tab = 'profile'; await loadUsers(u.id); showTab('profile');
+  const u = await post('/users', { name }); await loadUsers(u.id);
 });
 
-// ---- tabs ----------------------------------------------------------------------------------------------
 function showTab(t) {
   state.tab = t;
   $$('#tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === t));
-  $$('.view').forEach(v => v.id !== 'welcome' && v.classList.toggle('hide', v.id !== t));
-  if (t === 'jobs') renderJobs(); if (t === 'questions') renderQuestions(); if (t === 'profile') renderStep();
-  if (t === 'map') renderMap().catch(e => toast(e.message));
+  $$('.view').forEach(v => v.classList.toggle('hide', v.id !== t));
+  const r = ({ home: renderHome, jobs: renderJobs, market: renderMarket, map: renderMap, careers: renderCareers, questions: renderQuestions, profile: renderStep })[t]?.();
+  if (r?.catch) r.catch(e => toast(e.message));
 }
 $$('#tabs button').forEach(b => b.onclick = () => showTab(b.dataset.tab));
 
-// ---- home ----------------------------------------------------------------------------------------------
-const STATS = [
-  ['ready_to_submit', 'Ready for you to submit'], ['needs_input', 'Need your answers'], ['manual', 'Apply by hand'],
-  ['ready', 'Waiting to be prepared'], ['submitted', 'Submitted']];
-function renderHome() {
-  const d = state.data, c = d.counts;
-  $('#stats').innerHTML = STATS.map(([k, l]) => `<div class="stat" data-go="${k}"><b>${c[k] || 0}</b><span>${l}</span></div>`).join('');
-  $$('.stat').forEach(s => s.onclick = () => { state.jobFilter = s.dataset.go; renderJobs.picked = true; showTab(s.dataset.go === 'needs_input' && d.questions ? 'questions' : 'jobs'); });
-  const missing = [];
-  if (!d.hasCv) missing.push('upload your CV');
-  if (!d.profile.email || !d.profile.phone) missing.push('check your contact details');
-  if (!d.settings.search.includeKeywords.length) missing.push('choose the jobs you want');
-  for (const k of ['workAuthorized', 'needsSponsorship', 'noticePeriod', 'salaryText']) if (!d.profile[k]) { missing.push('answer the "About you" questions'); break; }
-  const b = $('#setupBanner');
-  b.classList.toggle('hide', !missing.length);
-  b.innerHTML = missing.length ? `<b>Almost there.</b> Before the first run, please ${missing.join(', ')} in <a href="#" id="goSetup">Profile &amp; CV</a>.` : '';
-  $('#goSetup') && ($('#goSetup').onclick = e => { e.preventDefault(); showTab('profile'); });
-  $$('[data-run]').forEach(btn => btn.disabled = !!state.task || (!d.ready && btn.dataset.run !== 'login'));
-}
-$$('[data-run]').forEach(b => b.onclick = guard(async () => {
-  const name = b.dataset.run;
-  if (name === 'review') toast('A browser window will open with the first application. Check it, click Submit, then close the tab for the next one.', 8000);
-  if (name === 'login') toast('A Chrome window will open. Sign in on each tab, then close the window.', 8000);
-  await post('/task', { user: state.user, name }); showTab('home');
-}));
-$('#stopTask').onclick = guard(() => api('/task', { method: 'DELETE' }));
-
-// ---- live activity -------------------------------------------------------------------------------------
+// ---- live activity ---------------------------------------------------------------------------------------
+const onTaskDone = [];
 function connect() {
   const es = new EventSource('/api/events');
-  es.addEventListener('log', e => { const l = $('#log'); l.textContent += JSON.parse(e.data) + '\n'; l.scrollTop = l.scrollHeight; });
+  es.addEventListener('log', e => {
+    const line = JSON.parse(e.data);
+    for (const l of [$('#log'), $('#wizLog')]) if (l) { l.textContent += line + '\n'; l.scrollTop = l.scrollHeight; }
+  });
   es.addEventListener('task', e => {
     const t = JSON.parse(e.data), was = state.task;
     state.task = t;
     $('#taskState').textContent = t ? `${t.label}…` : 'Idle';
     $('#stopTask').classList.toggle('hide', !t);
     if (t && !was) $('#log').textContent = '';
-    if (!t && was) refresh().catch(() => {});
-    if (state.data) renderHome();
+    if (!t && was) refresh().then(() => onTaskDone.splice(0).forEach(f => f(was))).catch(() => {});
+    $$('[data-run]').forEach(b => b.disabled = !!t);
   });
   es.onerror = () => { $('#taskState').textContent = 'Reconnecting…'; };
 }
+$('#stopTask').onclick = guard(() => api('/task', { method: 'DELETE' }));
 
-// ---- jobs ----------------------------------------------------------------------------------------------
-const FILTERS = [['ready_to_submit', 'Ready to submit'], ['needs_input', 'Need answers'], ['manual', 'Apply by hand'], ['ready', 'Waiting'],
-  ['failed', 'Problems'], ['submitted', 'Submitted'], ['skipped', 'Not a fit'], ['', 'All']];
-const STATUS_LABEL = { new: 'New', ready: 'Waiting to be prepared', ready_to_submit: 'Ready to submit', needs_input: 'Needs your answers', manual: 'Apply by hand',
-  submitted: 'Submitted', skipped: 'Not a fit', failed: 'Problem', closed: 'Closed', duplicate: 'Duplicate', excluded: 'Excluded' };
+// ---- shared form helpers -------------------------------------------------------------------------------
+const field = (id, label, value, { type = 'text', help = '', options, req } = {}) => `<label>${label}${req ? ' <b class="req">*</b>' : ''}${options
+  ? `<select id="${id}">${options.map(([v, l]) => `<option value="${esc(v)}" ${String(value ?? '') === String(v) ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select>`
+  : type === 'textarea' ? `<textarea id="${id}">${esc(value ?? '')}</textarea>` : `<input id="${id}" type="${type}" value="${esc(value ?? '')}">`}${help ? `<p class="help">${help}</p>` : ''}</label>`;
+const yn = [['', 'Choose…'], ['Yes', 'Yes'], ['No', 'No']];
+const val = id => ($('#' + id)?.value ?? '').trim();
+
+function cvDrop(after) {
+  return {
+    html: `<div class="drop" id="drop">📄 <b>Drop your CV here</b> or click to choose a file<br><span class="muted">PDF or Word</span><input type="file" id="cvFile" accept=".pdf,.docx,.txt" hidden></div>`,
+    bind() {
+      const drop = $('#drop'), input = $('#cvFile');
+      drop.onclick = () => input.click();
+      drop.ondragover = e => { e.preventDefault(); drop.classList.add('over'); };
+      drop.ondragleave = () => drop.classList.remove('over');
+      const upload = guard(async f => {
+        if (!f) return;
+        if (state.data.hasCv && !confirm('Replace your profile with what is read from this CV? Your answers and job list are kept.')) return;
+        const r = await fetch(`/api/users/${state.user}/upload-cv`, { method: 'POST', body: f, headers: { 'X-JobPilot': '1', 'X-Filename': encodeURIComponent(f.name) } });
+        if (!r.ok) throw new Error((await r.json()).error);
+        after?.();
+      });
+      drop.ondrop = e => { e.preventDefault(); drop.classList.remove('over'); upload(e.dataTransfer.files[0]); };
+      input.onchange = () => upload(input.files[0]);
+    }
+  };
+}
+
+function aboutForm(p) {
+  const e = p.education || {};
+  return `
+    <div class="card"><h2>Your contact details</h2><p class="muted">Read from your CV. Please check them: they go on every application.</p><div class="grid2">
+      ${field('firstName', 'First name', p.firstName, { req: 1 })}${field('lastName', 'Last name', p.lastName, { req: 1 })}
+      ${field('email', 'Email', p.email, { type: 'email', req: 1 })}${field('phone', 'Phone', p.phone, { req: 1, help: 'with country code, e.g. +353 83 123 4567' })}
+      ${field('city', 'Where you live (town or city)', p.city, { req: 1 })}${field('linkedin', 'LinkedIn profile link (if you have one)', p.linkedin)}
+      ${field('currentEmployer', 'Current or last employer', p.currentEmployer)}${field('currentTitle', 'Current or last job title', p.currentTitle)}
+    </div></div>
+    <div class="card"><h2>Questions almost every form asks</h2><p class="muted">Answer once here and they are used on every application.</p><div class="grid2">
+      ${field('workAuthorized', 'Are you allowed to work in Ireland?', p.workAuthorized, { options: yn, req: 1 })}
+      ${field('needsSponsorship', 'Do you need a visa or work permit sponsored?', p.needsSponsorship, { options: yn, req: 1 })}
+      ${field('visaStatus', 'Your status in words', p.visaStatus, { help: 'e.g. "Irish citizen", "EU citizen", "Stamp 4"' })}
+      ${field('nationality', 'Nationality', p.nationality)}
+      ${field('noticePeriod', 'Notice period at your current job', p.noticePeriod, { req: 1, help: 'e.g. "1 week", "2 weeks", "1 month", or "None"' })}
+      ${field('noticeDays', 'Notice period in days', p.noticeDays ?? 14, { type: 'number' })}
+      ${field('currentPay', 'What you earn now (optional, private)', p.currentPay, { help: 'Only used to suggest better-paid options, e.g. "minimum wage" or "€28,000"' })}
+      ${field('salaryText', 'Pay you would ask for', p.salaryText, { req: 1, help: 'e.g. "€30,000 to €34,000 a year depending on the role"' })}
+      ${field('salaryNumber', 'Same as a single number (yearly €)', p.salaryNumber, { type: 'number' })}
+      ${field('onsiteOk', 'Happy to work on site / in an office?', p.onsiteOk, { options: yn })}
+      ${field('shiftWorkOk', 'Happy to do shifts or weekends?', p.shiftWorkOk, { options: yn })}
+      ${field('basedInRegion', 'Do you live in Europe?', p.basedInRegion || 'Yes', { options: yn })}
+      ${field('languages', 'Languages you speak (comma separated)', (p.languages || ['English']).join(', '))}
+    </div></div>
+    <div class="card"><h2>Education (for forms that ask)</h2><div class="grid2">
+      ${field('school', 'School / college', e.school)}
+      ${field('degreeOption', 'Highest level', e.degreeOption, { options: [['', 'Choose…'], ['High School', 'Leaving Cert / secondary school'], ["Associate's Degree", 'QQI Level 5-6 / Higher Certificate'], ["Bachelor's Degree", "Bachelor's degree"], ["Master's Degree", "Master's degree"], ['Doctor of Philosophy (Ph.D.)', 'PhD'], ['Other', 'Other']] })}
+    </div><p class="help">Questions about gender, ethnicity, disability and similar are always answered "prefer not to say" or left blank.</p></div>`;
+}
+async function saveAbout(required) {
+  const missing = [['firstName', 'first name'], ['lastName', 'last name'], ['email', 'email'], ['phone', 'phone'], ['city', 'town or city'],
+    ['workAuthorized', 'permission to work'], ['needsSponsorship', 'sponsorship'], ['noticePeriod', 'notice period'], ['salaryText', 'pay you would ask for']].filter(([k]) => !val(k));
+  if (required && missing.length) throw new Error('Please fill in: ' + missing.map(m => m[1]).join(', '));
+  if (val('email') && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(val('email'))) throw new Error('That email address does not look right');
+  if (val('phone') && val('phone').replace(/\D/g, '').length < 8) throw new Error('That phone number looks too short');
+  const fn = val('firstName'), ln = val('lastName'), e = state.data.profile.education || {};
+  await put(`/users/${state.user}/profile`, {
+    firstName: fn, lastName: ln, fullName: `${fn} ${ln}`.trim(), email: val('email'), phone: val('phone'), city: val('city'),
+    linkedin: val('linkedin') && !/^https?:/.test(val('linkedin')) ? 'https://' + val('linkedin') : val('linkedin'),
+    currentEmployer: val('currentEmployer'), currentTitle: val('currentTitle'), workAuthorized: val('workAuthorized'), needsSponsorship: val('needsSponsorship'),
+    visaStatus: val('visaStatus'), nationality: val('nationality'), noticePeriod: val('noticePeriod'), noticeDays: +val('noticeDays') || 14,
+    currentPay: val('currentPay'), salaryText: val('salaryText'), salaryNumber: +val('salaryNumber') || '', onsiteOk: val('onsiteOk'), shiftWorkOk: val('shiftWorkOk'),
+    basedInRegion: val('basedInRegion'), languages: val('languages').split(',').map(s => s.trim()).filter(Boolean),
+    locationText: [val('city'), 'Ireland'].join(', '), education: { ...e, school: val('school'), degreeOption: val('degreeOption'), degreeFallback: val('degreeOption') }
+  });
+  state.data = await api(`/users/${state.user}`);
+}
+
+// Title picker: suggestions as tick boxes + "add your own".
+function titlePicker(suggested, chosen) {
+  const all = [...new Set([...chosen, ...suggested])];
+  return `<div class="picks" id="picks">${all.map(t => `<label class="pick"><input type="checkbox" value="${esc(t)}" ${chosen.includes(t) ? 'checked' : ''}> ${esc(t)}</label>`).join('')}</div>
+    <div class="row" style="margin-top:10px"><input id="ownTitle" placeholder="Add your own job title, e.g. Receptionist"><button id="addTitle">Add</button></div>`;
+}
+function bindTitlePicker() {
+  const add = () => { const v = val('ownTitle'); if (!v) return; $('#picks').insertAdjacentHTML('beforeend', `<label class="pick"><input type="checkbox" value="${esc(v)}" checked> ${esc(v)}</label>`); $('#ownTitle').value = ''; };
+  $('#addTitle').onclick = add; $('#ownTitle').onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); add(); } };
+}
+const pickedTitles = () => $$('#picks input:checked').map(i => i.value);
+
+function modeChooser(s) {
+  const a = s.auto || {};
+  return `<div class="modes">
+      <label class="modecard"><input type="radio" name="mode" value="help" ${s.mode !== 'auto' ? 'checked' : ''}>
+        <h3>🧭 Help me apply</h3><p>JobPilot finds and ranks jobs, explains why each fits, and makes a <b>tailored CV and cover letter</b> for every recommended job. <b>You</b> open the link and apply. It can also fill in a form for you to check and submit.</p><p class="muted">Recommended to start with.</p></label>
+      <label class="modecard"><input type="radio" name="mode" value="auto" ${s.mode === 'auto' ? 'checked' : ''}>
+        <h3>🚀 Apply for me</h3><p>Everything above, and JobPilot also <b>submits applications by itself</b> on company sites it can fill in, within the limits below. Jobs it cannot submit safely stay in your list with their CV and letter.</p></label>
+    </div>
+    <div id="autoBox" class="card ${s.mode === 'auto' ? '' : 'hide'}"><h3>Limits for automatic applications</h3><div class="grid2">
+      ${field('minScore', 'Only apply when the fit score is at least', a.minScore ?? 80, { type: 'number', help: '80 = only strong fits. Lower means more applications.' })}
+      ${field('dailyLimit', 'Most automatic applications per day', a.dailyLimit ?? 10, { type: 'number' })}</div>
+      <ul class="muted small"><li>Only when every required question is answered from your profile and the form is checked complete.</li>
+      <li>Never for legal declarations, "I didn't use AI" statements, criminal record or anything your profile doesn't cover: those come to you.</li>
+      <li>Never solves CAPTCHAs; one application per company per run; a screenshot is kept of every submission.</li></ul>
+      <label class="row consent"><input type="checkbox" id="autoConsent" ${a.consentAt ? 'checked' : ''}> I understand JobPilot will submit job applications in my name without me checking each one first.</label>
+    </div>`;
+}
+function bindModeChooser() { $$('input[name=mode]').forEach(r => r.onchange = () => $('#autoBox').classList.toggle('hide', $('input[name=mode]:checked').value !== 'auto')); }
+async function saveMode() {
+  const mode = $('input[name=mode]:checked').value;
+  if (mode === 'auto' && !$('#autoConsent').checked) throw new Error('Tick the box to confirm automatic applications, or choose "Help me apply".');
+  await put(`/users/${state.user}/settings`, mode === 'auto'
+    ? { mode, autoConsent: true, auto: { minScore: Math.min(95, Math.max(60, +val('minScore') || 80)), dailyLimit: Math.min(50, Math.max(1, +val('dailyLimit') || 10)) } }
+    : { mode });
+}
+
+// ---- first-time setup wizard ------------------------------------------------------------------------------
+const WIZ = ['Your CV', 'Your details', 'Explore careers', 'Jobs to look for', 'How to apply', 'Market scan'];
+function showSetup() {
+  state.tab = 'setup';
+  $$('.view').forEach(v => v.classList.toggle('hide', v.id !== 'setup'));
+  $('#tabs').classList.add('hide');
+  if (state.wiz === 0 && state.data.hasCv) state.wiz = 1;
+  renderWizard();
+}
+function renderWizard() {
+  const i = state.wiz, d = state.data, body = $('#wizBody');
+  $('#wizSteps').innerHTML = WIZ.map((w, k) => `<li class="${k < i ? 'done' : k === i ? 'on' : ''}">${k < i ? '✓' : k + 1}. ${w}</li>`).join('');
+  const go = n => { state.wiz = n; renderWizard(); window.scrollTo(0, 0); };
+  const nav = (nextLabel = 'Next →') => `<div class="savebar">${i > 0 ? '<button id="wBack" class="ghost">← Back</button>' : ''}<button id="wNext" class="primary">${nextLabel}</button></div>`;
+  const bindBack = () => $('#wBack') && ($('#wBack').onclick = () => go(i - 1));
+
+  if (i === 0) {
+    const drop = cvDrop(() => {
+      body.innerHTML = `<div class="card"><h2>Reading your CV…</h2><p class="muted">About a minute. You can watch what it is doing:</p><pre id="wizLog" class="log" style="height:180px"></pre></div>`;
+      onTaskDone.push(() => {
+        if (!state.data.hasCv) return toast('The CV could not be read. Try a PDF or Word file with real text (not a photo).', 9000), go(0);
+        const w = state.data.onboarding?.warnings || [];
+        if (w.length) toast(`${w.length} line(s) differ from your original CV: please check them in Profile → Your CV.`, 9000);
+        go(1);
+      });
+    });
+    body.innerHTML = `<div class="card"><h2>Hi ${esc(d.profile.firstName || d.profile.fullName || '')}! Let's start with your CV</h2>
+      <p>JobPilot reads it, fills in your details, and suggests jobs you could do.</p>${drop.html}</div>`;
+    return drop.bind();
+  }
+  if (i === 1) {
+    body.innerHTML = aboutForm(d.profile) + nav();
+    bindBack(); $('#wNext').onclick = guard(async () => { await saveAbout(true); go(2); });
+    return;
+  }
+  if (i === 2) {
+    body.innerHTML = `<div class="card"><h2>Not sure what to look for?</h2><p>Take a 2-minute quiz. JobPilot combines it with your CV and suggests <b>better-paid jobs you could realistically get</b>, checked against real job ads near you. You can skip this.</p>
+      <div class="row"><button id="takeQuiz" class="primary">Take the quiz</button><button id="skipQuiz" class="ghost">Skip, I know what I want</button></div></div>
+      <div id="careerInline"></div>${nav()}`;
+    bindBack();
+    $('#takeQuiz').onclick = () => quiz($('#careerInline'), () => go(2));
+    $('#skipQuiz').onclick = () => go(3); $('#wNext').onclick = () => go(3);
+    if (d.hasCareers) careerResults($('#careerInline'), true);
+    return;
+  }
+  if (i === 3) {
+    const se = d.settings.search;
+    api(`/users/${state.user}/careers`).then(c => {
+      const fromCareers = (c?.options || []).filter(o => o.picked).flatMap(o => o.searchTitles);
+      body.innerHTML = `<div class="card"><h2>Which jobs should JobPilot look for?</h2><p>Suggested from your CV${fromCareers.length ? ' and the careers you picked' : ''}. Untick any you don't want and add your own.</p>
+        ${titlePicker([...se.titles, ...fromCareers], [...new Set([...se.titles, ...fromCareers])])}</div>
+        <div class="card"><h2>Where and how much</h2><div class="grid2">
+          ${field('city', 'Area', se.city || d.profile.city || 'Dublin')}
+          ${field('remote', 'Remote jobs too?', se.remote, { options: [['none', 'No, only jobs near me'], ['country', 'Yes, remote within Ireland'], ['europe', 'Yes, remote across Europe'], ['anywhere', 'Yes, remote anywhere']] })}
+          ${field('minSalary', 'Lowest yearly pay you would accept (€, 0 = any)', d.settings.apply.minSalary || 0, { type: 'number' })}</div></div>${nav()}`;
+      bindTitlePicker(); bindBack();
+      $('#wNext').onclick = guard(async () => {
+        const titles = pickedTitles(); if (!titles.length) throw new Error('Pick at least one job title');
+        $('#wNext').disabled = true; $('#wNext').textContent = 'Saving…';
+        try {
+          await put(`/users/${state.user}/settings`, { search: { city: val('city'), remote: val('remote') }, apply: { minSalary: +val('minSalary') || 0 } });
+          await post(`/users/${state.user}/titles`, { titles });
+          state.data = await api(`/users/${state.user}`); go(4);
+        } finally { if ($('#wNext')) { $('#wNext').disabled = false; } }
+      });
+    }).catch(e => toast(e.message));
+    return;
+  }
+  if (i === 4) {
+    body.innerHTML = `<div class="card"><h2>How should JobPilot help?</h2><p class="muted">You can change this any time in Profile → How to apply.</p>${modeChooser(d.settings)}</div>${nav()}`;
+    bindModeChooser(); bindBack();
+    $('#wNext').onclick = guard(async () => { await saveMode(); state.data = await api(`/users/${state.user}`); go(5); });
+    return;
+  }
+  body.innerHTML = `<div class="card"><h2>Ready for your first market scan</h2>
+    <p>JobPilot searches every job site for the last 2 weeks, scores each job against your CV, makes a tailored CV and cover letter for the best ones${d.settings.mode === 'auto' ? ', applies to the strongest fits' : ''}, and builds your market report.</p>
+    <p class="muted">It takes about 10-15 minutes. A browser window may open and close by itself: leave it alone.</p>
+    <button id="startScan" class="primary big">▶ Start my first scan</button><pre id="wizLog" class="log hide" style="height:260px;margin-top:12px"></pre></div>${nav('Skip for now')}`;
+  bindBack();
+  const finish = () => put(`/users/${state.user}/settings`, { setupDone: true });
+  $('#wNext').onclick = guard(async () => { await finish(); state.tab = 'home'; await refresh(); });
+  $('#startScan').onclick = guard(async () => {
+    await runTask('scan'); $('#startScan').disabled = true; $('#startScan').textContent = 'Scanning…'; $('#wizLog').classList.remove('hide');
+    onTaskDone.push(async () => { await finish(); state.tab = 'market'; await refresh(); toast('Your market report is ready'); });
+  });
+}
+
+// ---- career explorer --------------------------------------------------------------------------------------
+async function quiz(el, done) {
+  const qs = await api('/quiz');
+  el.innerHTML = `<div class="card"><h2>Career quiz</h2><p class="muted">Pick everything that applies. Skip anything you like.</p>
+    ${qs.map(q => `<div class="quizq"><b>${esc(q.q)}</b><div class="opts">${q.free ? `<input data-q="${q.id}" placeholder="Optional">`
+      : q.options.map(o => `<label class="pick"><input type="${q.multi ? 'checkbox' : 'radio'}" name="q_${q.id}" value="${esc(o)}"> ${esc(o)}</label>`).join('')}</div></div>`).join('')}
+    <button id="quizGo" class="primary">Show me career options</button><pre id="wizLog" class="log hide" style="height:160px;margin-top:12px"></pre></div>`;
+  $('#quizGo').onclick = guard(async () => {
+    const answers = {};
+    for (const q of qs) answers[q.id] = q.free ? (el.querySelector(`[data-q="${q.id}"]`).value || '') : [...el.querySelectorAll(`input[name="q_${q.id}"]:checked`)].map(i => i.value);
+    await post(`/users/${state.user}/careers`, { answers });
+    $('#quizGo').disabled = true; $('#quizGo').textContent = 'Thinking… (about a minute)'; $('#wizLog').classList.remove('hide');
+    onTaskDone.push(() => done());
+  });
+}
+async function careerResults(el, inWizard) {
+  const c = await api(`/users/${state.user}/careers`);
+  if (!c) { el.innerHTML = ''; return; }
+  el.innerHTML = `<div class="card"><h2>Career options for you</h2><p class="muted">Salary ranges are estimates. "Open now nearby" and "pay stated in ads" come from live job ads today. Tick the ones you want to search for.</p>
+    ${c.options.map((o, i) => `<div class="career">
+      <div class="row between wrap"><label class="h3"><input type="checkbox" class="cpick" data-i="${i}" ${o.picked ? 'checked' : ''}> ${esc(o.career)}</label><span class="tag">${esc(o.timeToStart)}</span></div>
+      <p>${esc(o.why)}</p>
+      <div class="kv"><span>💶 ${esc(o.salaryEstimate)}</span><span>📋 ${o.openJobs ?? 0} open now nearby</span><span>📈 pay stated in ads: ${o.salaryMedian ? eur(o.salaryMedian) + ' typical' : 'not enough ads say'}</span></div>
+      <p class="muted"><b>To get in:</b> ${esc(o.entry)}</p>
+      <ul>${o.firstSteps.map(s => `<li>${esc(s)}</li>`).join('')}</ul>
+      <p class="muted">Job titles searched: ${o.searchTitles.map(esc).join(', ')}</p></div>`).join('')}
+    ${inWizard ? '<p class="muted">Ticked careers are added to your job titles on the next step.</p>' : `<button id="useCareers" class="primary">Add the ticked careers to my job search</button>`}</div>`;
+  const picks = () => c.options.map((o, i) => !!el.querySelector(`.cpick[data-i="${i}"]`)?.checked);
+  $$('.cpick').forEach(cb => cb.onchange = guard(() => put(`/users/${state.user}/careers-picks`, { picks: picks() })));
+  $('#useCareers') && ($('#useCareers').onclick = guard(async () => {
+    const p = picks(), add = c.options.filter((o, i) => p[i]).flatMap(o => o.searchTitles);
+    if (!add.length) throw new Error('Tick at least one career first');
+    await put(`/users/${state.user}/careers-picks`, { picks: p });
+    await post(`/users/${state.user}/titles`, { titles: [...new Set([...state.data.settings.search.titles, ...add])] });
+    toast(`Added ${add.length} job titles to your search. Press "Daily run" on Home to search for them.`, 7000); state.data = await api(`/users/${state.user}`);
+  }));
+}
+async function renderCareers() {
+  const el = $('#careersBody');
+  el.innerHTML = `<div class="card"><div class="row between wrap"><div><h2>Career explorer</h2><p class="muted">Find better-paid work that fits you: a short quiz plus your CV, checked against real job ads.</p></div>
+    <button id="retake" class="primary">${state.data.hasCareers ? 'Retake the quiz' : 'Take the quiz'}</button></div></div><div id="careerList"></div>`;
+  $('#retake').onclick = () => quiz($('#careerList'), () => showTab('careers'));
+  await careerResults($('#careerList'), false);
+}
+
+// ---- home --------------------------------------------------------------------------------------------------
+function renderHome() {
+  const d = state.data, c = d.counts, auto = d.settings.mode === 'auto';
+  $('#modeBanner').innerHTML = auto
+    ? `<b>🚀 Apply for me</b> is on: strong fits (score ${d.settings.auto.minScore}+) are submitted automatically, up to ${d.settings.auto.dailyLimit} a day. <a href="#" data-goto="mode">Change</a>`
+    : `<b>🧭 Help me apply</b>: JobPilot recommends jobs and makes a tailored CV and cover letter for each; you apply. <a href="#" data-goto="mode">Change</a>`;
+  const rec = (c.ready || 0) + (c.manual || 0);
+  const stats = [['recommended', rec, 'Recommended for you'], ['needs_input', c.needs_input || 0, 'Need your answers'],
+    ...(auto ? [['submitted', d.autoToday, 'Applied for you today']] : [['ready_to_submit', c.ready_to_submit || 0, 'Forms filled, ready to send']]),
+    ['submitted', c.submitted || 0, 'Applied in total']];
+  $('#stats').innerHTML = stats.map(([k, n, l]) => `<div class="stat" data-go="${k}"><b>${n}</b><span>${l}</span></div>`).join('');
+  $$('.stat').forEach(s => s.onclick = () => { state.jobFilter = s.dataset.go; showTab(s.dataset.go === 'needs_input' && d.questions ? 'questions' : 'jobs'); });
+  $('#actions').innerHTML = `
+    <button class="primary big" data-run="run">▶ Daily run<small>find new jobs, score them, make CVs and letters${auto ? ', apply to strong fits' : ''}</small></button>
+    <button class="big" data-show="jobs">⭐ My recommended jobs<small>links, why they fit, tailored CV and cover letter</small></button>
+    <button class="big" data-show="market">📊 Market report<small>demand, pay, who is hiring</small></button>
+    ${c.ready_to_submit ? `<button class="big accent" data-run="review">✅ Review &amp; submit<small>${c.ready_to_submit} filled form(s) waiting for you</small></button>` : ''}
+    <button class="big ghost" data-run="login">🔑 Sign in to job sites<small>IrishJobs, Jobs.ie, LinkedIn</small></button>`;
+  $$('[data-run]').forEach(b => { b.disabled = !!state.task; b.onclick = guard(async () => {
+    if (b.dataset.run === 'review') toast('A browser window opens with the first form. Check it, click Submit, then close the tab for the next one.', 8000);
+    if (b.dataset.run === 'login') toast('A Chrome window opens. Sign in on each tab, then close the window.', 8000);
+    await runTask(b.dataset.run);
+  }); });
+  $$('[data-show]').forEach(b => b.onclick = () => { if (b.dataset.show === 'jobs') state.jobFilter = 'recommended'; showTab(b.dataset.show); });
+  $$('[data-goto]').forEach(a => a.onclick = e => { e.preventDefault(); state.step = a.dataset.goto; showTab('profile'); });
+}
+
+// ---- jobs ----------------------------------------------------------------------------------------------------
+const FILTERS = [['recommended', 'Recommended'], ['needs_input', 'Need answers'], ['ready_to_submit', 'Form filled'], ['submitted', 'Applied'], ['failed', 'Problems'], ['skipped', 'Not a fit'], ['', 'All']];
+const STATUS_LABEL = { new: 'New', ready: 'Recommended', manual: 'Recommended', ready_to_submit: 'Form filled, ready to send', needs_input: 'Needs your answers',
+  submitted: 'Applied', skipped: 'Not a fit', failed: 'Problem', closed: 'Closed', duplicate: 'Duplicate', excluded: 'Excluded' };
+const statusQuery = f => f === 'recommended' ? 'ready,manual' : f;
 async function renderJobs() {
-  // Open on the first non-empty category the first time.
-  const c = state.data?.counts || {};
-  if (!renderJobs.picked && state.jobFilter && !c[state.jobFilter]) state.jobFilter = (FILTERS.find(([k]) => k && c[k]) || [''])[0];
-  renderJobs.picked = true;
-  $('#jobFilters').innerHTML = FILTERS.map(([k, l]) => `<span class="chip ${state.jobFilter === k ? 'on' : ''}" data-f="${k}">${l}${k && state.data?.counts[k] ? ` (${state.data.counts[k]})` : ''}</span>`).join('');
+  const c = state.data.counts, count = k => k === 'recommended' ? (c.ready || 0) + (c.manual || 0) : c[k];
+  $('#jobFilters').innerHTML = FILTERS.map(([k, l]) => `<span class="chip ${state.jobFilter === k ? 'on' : ''}" data-f="${k}">${l}${k && count(k) ? ` (${count(k)})` : ''}</span>`).join('');
   $$('#jobFilters .chip').forEach(ch => ch.onclick = () => { state.jobFilter = ch.dataset.f; renderJobs(); });
-  const jobs = await api(`/users/${state.user}/jobs${state.jobFilter ? '?status=' + state.jobFilter : ''}`);
+  const jobs = await api(`/users/${state.user}/jobs${state.jobFilter ? '?status=' + statusQuery(state.jobFilter) : ''}`);
   const q = $('#jobSearch').value.toLowerCase();
   const list = jobs.filter(j => !q || `${j.title} ${j.company}`.toLowerCase().includes(q));
-  const file = p => `/api/users/${state.user}/file?path=${encodeURIComponent(p)}`;
-  $('#jobList').innerHTML = list.length ? list.map(j => `
-    <div class="job">
-      <div class="score" title="How well it fits (0-100)">${j.score ?? '–'}</div>
-      <div>
-        <h3>${esc(j.title)}</h3>
-        <div class="meta">${esc(j.company)} · ${esc(j.location || '')} · <span class="tag ${j.status}">${STATUS_LABEL[j.status] || j.status}</span> <span class="tag">${esc(j.source || '')}</span></div>
-        ${j.reason ? `<div class="why">${esc(j.reason)}</div>` : ''}
-        ${j.status === 'needs_input' ? `<div class="why">Waiting on: ${esc(j.pending.map(p => p.label).join('; ').slice(0, 220))}</div>` : ''}
-        ${j.problems.length || j.error ? `<div class="why" style="color:var(--red)">${esc(j.error || j.problems.map(p => p.label + ': ' + p.why).join('; ').slice(0, 220))}</div>` : ''}
-        <div class="links"><a href="${esc(j.url)}" target="_blank" rel="noopener">Job posting ↗</a>
-          ${j.screenshot ? `<a href="${file(j.screenshot)}" target="_blank">Filled form</a>` : ''}
-          ${j.cvPdf ? `<a href="${file(j.cvPdf)}" target="_blank">Tailored CV</a>` : ''}</div>
-      </div>
-      <div class="btns">
-        ${j.status === 'ready_to_submit' || j.status === 'needs_input' ? `<button class="small accent" data-review="${esc(j.id)}">Review &amp; submit</button>` : ''}
-        ${j.status === 'manual' ? `<button class="small accent" data-mark="submitted" data-id="${esc(j.id)}">I applied</button>` : ''}
-        ${!['submitted', 'skipped'].includes(j.status) ? `<button class="small ghost" data-mark="skipped" data-id="${esc(j.id)}">Not for me</button>` : ''}
-        ${j.status === 'skipped' ? `<button class="small ghost" data-mark="ready" data-id="${esc(j.id)}">Prepare anyway</button>` : ''}
-        ${j.status === 'ready_to_submit' ? `<button class="small ghost" data-mark="submitted" data-id="${esc(j.id)}">I already sent it</button>` : ''}
-      </div>
-    </div>`).join('') : `<div class="card muted">Nothing here yet.</div>`;
-  $$('[data-mark]').forEach(b => b.onclick = guard(async () => { await post(`/users/${state.user}/jobs/${encodeURIComponent(b.dataset.id)}`, { status: b.dataset.mark }); await refresh(); renderJobs(); }));
-  $$('[data-review]').forEach(b => b.onclick = guard(async () => {
-    toast('Opening the form in a browser window. Check it, click Submit, then close the tab.', 8000);
-    await post('/task', { user: state.user, name: 'review', args: [b.dataset.review] }); showTab('home');
-  }));
+  $('#jobList').innerHTML = list.length ? list.map(jobCard).join('') : `<div class="card muted">Nothing here yet. Press <b>Daily run</b> on Home to search.</div>`;
+  bindJobButtons(list);
+}
+function jobCard(j) {
+  const k = j.kit;
+  return `<div class="job">
+    <div class="score" title="How well it fits you (0-100)">${j.score ?? '–'}</div>
+    <div>
+      <h3>${esc(j.title)}</h3>
+      <div class="meta">${esc(j.company)} · ${esc(j.location || '')} · <span class="tag ${j.status}">${j.autoSubmitted ? 'Applied for you' : STATUS_LABEL[j.status] || j.status}</span> <span class="tag">${esc(j.source || '')}</span></div>
+      ${j.reason ? `<div class="why">💡 ${esc(j.reason)}</div>` : ''}
+      ${j.status === 'needs_input' ? `<div class="why">Waiting on: ${esc(j.pending.map(p => p.label).join('; ').slice(0, 220))}</div>` : ''}
+      ${j.problems.length || j.error ? `<div class="why" style="color:var(--red)">${esc(j.error || j.problems.map(p => p.label + ': ' + p.why).join('; ').slice(0, 220))}</div>` : ''}
+      ${k ? `<details class="kit"><summary>📎 Your tailored CV and cover letter</summary>
+          <div class="links"><a href="${file(k.cvPdf)}" target="_blank">CV (PDF)</a>${k.cvDocx ? `<a href="${file(k.cvDocx)}">CV (Word)</a>` : ''}<a href="${file(k.letterPdf)}" target="_blank">Cover letter (PDF)</a><a href="#" data-copy="${esc(j.id)}">Copy cover letter text</a></div>
+          <b>What was changed in your CV:</b><ul>${k.changes.map(x => `<li>${esc(x)}</li>`).join('')}</ul></details>` : ''}
+      <div class="links"><a href="${esc(j.url)}" target="_blank" rel="noopener">Open the job ad ↗</a>
+        ${j.screenshot ? `<a href="${file(j.screenshot)}" target="_blank">Filled form</a>` : ''}${j.submittedShot ? `<a href="${file(j.submittedShot)}" target="_blank">Submission screenshot</a>` : ''}</div>
+    </div>
+    <div class="btns">
+      ${['ready', 'manual'].includes(j.status) && !k ? `<button class="small" data-kit="${esc(j.id)}">Make CV + letter</button>` : ''}
+      ${['ready', 'needs_input', 'ready_to_submit'].includes(j.status) && j.canFill ? `<button class="small accent" data-review="${esc(j.id)}">Fill the form for me</button>` : ''}
+      ${j.status !== 'submitted' ? `<button class="small accent" data-mark="submitted" data-id="${esc(j.id)}">I applied</button>` : ''}
+      ${!['submitted', 'skipped'].includes(j.status) ? `<button class="small ghost" data-mark="skipped" data-id="${esc(j.id)}">Not for me</button>` : ''}
+      ${j.status === 'skipped' ? `<button class="small ghost" data-mark="ready" data-id="${esc(j.id)}">Recommend anyway</button>` : ''}
+    </div></div>`;
+}
+function bindJobButtons(list) {
+  $$('[data-mark]').forEach(b => b.onclick = guard(async () => { await post(`/users/${state.user}/jobs/${encodeURIComponent(b.dataset.id)}`, { status: b.dataset.mark }); await refresh(); }));
+  $$('[data-review]').forEach(b => b.onclick = guard(async () => { toast('Opening the form in a browser window. Check it, click Submit, then close the tab.', 8000); await runTask('review', [b.dataset.review]); showTab('home'); }));
+  $$('[data-kit]').forEach(b => b.onclick = guard(async () => { await runTask('kits', [b.dataset.kit]); toast('Making the tailored CV and cover letter (about a minute)…'); onTaskDone.push(() => showTab('jobs')); }));
+  $$('[data-copy]').forEach(a => a.onclick = guard(async e => { e.preventDefault(); const j = list.find(x => x.id === a.dataset.copy); await navigator.clipboard.writeText(j.kit.letter); toast('Cover letter copied: paste it into the application.'); }));
 }
 $('#jobSearch').oninput = () => renderJobs();
 
-// ---- map ---------------------------------------------------------------------------------------------------
+// ---- market -----------------------------------------------------------------------------------------------
+async function renderMarket() {
+  const m = await api(`/users/${state.user}/market`), el = $('#marketBody');
+  if (!m) {
+    el.innerHTML = `<div class="card"><h2>No market report yet</h2><p>Run a market scan to see how many jobs there are for you, what they pay and who is hiring.</p><button class="primary" id="scanNow">▶ Scan the market (10-15 min)</button></div>`;
+    $('#scanNow').onclick = guard(async () => { await runTask('scan'); showTab('home'); onTaskDone.push(() => showTab('market')); });
+    return;
+  }
+  const maxJobs = Math.max(1, ...m.byTitle.map(t => t.jobs));
+  el.innerHTML = `
+    <div class="card"><div class="row between wrap"><h2>Your job market</h2><span class="muted">last ${m.days} days · updated ${new Date(m.at).toLocaleString('en-GB')}</span></div>
+      ${m.summary ? `<p class="lead">${esc(m.summary)}</p>` : ''}
+      <div class="stats"><div class="stat"><b>${m.total}</b><span>jobs matching your search</span></div><div class="stat"><b>${m.goodFits}</b><span>good fits for you</span></div>
+        <div class="stat"><b>${eur(m.salary.median)}</b><span>typical stated pay (${m.salary.postingsWithSalary} ads say)</span></div><div class="stat"><b>${m.remoteShare}%</b><span>remote</span></div></div>
+      ${m.tips?.length ? `<h3>What to do next</h3><ul>${m.tips.map(t => `<li>${esc(t)}</li>`).join('')}</ul>` : ''}
+      ${m.suggestedTitles?.length ? `<h3>Titles worth adding (click to add)</h3><div class="chips">${m.suggestedTitles.map(t => `<span class="chip" data-addtitle="${esc(t)}">+ ${esc(t)}</span>`).join('')}</div>` : ''}</div>
+    <div class="card"><h2>Demand by job title</h2><div class="tblwrap"><table class="tbl"><tr><th>Title</th><th>Jobs</th><th></th><th>Good fits</th><th>Pay stated in ads</th></tr>
+      ${m.byTitle.map(t => `<tr><td>${esc(t.title)}</td><td>${t.jobs}</td><td class="barcell"><div class="bar" style="width:${Math.round(100 * t.jobs / maxJobs)}%"></div></td><td>${t.goodFits}</td>
+        <td>${t.salaryMedian ? `${eur(t.salaryMedian)} <span class="muted">(${eur(t.salaryMin)}-${eur(t.salaryMax)}, ${t.salaryCount} ads)</span>` : '<span class="muted">not stated</span>'}</td></tr>`).join('')}</table></div></div>
+    <div class="grid2">
+      <div class="card"><h2>Who is hiring</h2>${m.topCompanies.map(([c, n]) => `<div class="row between"><span>${esc(c)}</span><b>${n}</b></div>`).join('')}</div>
+      <div class="card"><h2>Top recommendations</h2>${m.recommended.map(r => `<div class="rec"><b>${r.score}</b> <a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.title)}</a> <span class="muted">${esc(r.company)}</span><div class="muted small">${esc(r.reason || '')}</div></div>`).join('') || '<p class="muted">None yet</p>'}
+        <button class="ghost" id="seeAll">See all with CVs and letters →</button></div>
+    </div>
+    <div class="card"><h2>Where the jobs were found</h2><div class="chips">${m.bySource.map(([s, n]) => `<span class="chip">${esc(s)} · ${n}</span>`).join('')}</div></div>`;
+  $('#seeAll').onclick = () => { state.jobFilter = 'recommended'; showTab('jobs'); };
+  $$('[data-addtitle]').forEach(ch => ch.onclick = guard(async () => {
+    await post(`/users/${state.user}/titles`, { titles: [...state.data.settings.search.titles, ch.dataset.addtitle] });
+    toast(`Added "${ch.dataset.addtitle}" to your search`); ch.remove(); state.data = await api(`/users/${state.user}`);
+  }));
+}
+
+// ---- map ------------------------------------------------------------------------------------------------------
 const MAP_COLORS = { ready_to_submit: '#137a4b', needs_input: '#c27c0e', manual: '#7c3aed', ready: '#1d4ed8', submitted: '#64748b', failed: '#b42318' };
-const MAP_FILTERS = [['', 'All open'], ['ready_to_submit', 'Ready to submit'], ['needs_input', 'Need answers'], ['manual', 'Apply by hand'], ['ready', 'Waiting'], ['submitted', 'Submitted']];
+const MAP_FILTERS = [['', 'All open'], ['ready', 'Recommended'], ['needs_input', 'Need answers'], ['ready_to_submit', 'Form filled'], ['submitted', 'Applied']];
 let leafletMap, markerLayer;
-// Spread jobs that share one area centre in a small circle so each can be clicked.
 const hash = s => [...s].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7);
 function spread(p, i, n) {
   if (n <= 1) return [p.lat, p.lng];
-  const r = (p.precision === 'city' ? 0.012 : 0.0035) * Math.sqrt(n / 6 + 0.5), a = (2 * Math.PI * i) / n + (hash(p.label) % 100) / 50;
+  const r = 0.0035 * Math.sqrt(n / 6 + 0.5), a = (2 * Math.PI * i) / n + (hash(p.label) % 100) / 50;
   return [p.lat + r * Math.sin(a), p.lng + r * 1.6 * Math.cos(a)];
 }
 async function renderMap() {
   if (typeof L === 'undefined') { $('#leaflet').innerHTML = '<p class="card">The map needs an internet connection (map images come from OpenStreetMap).</p>'; return; }
-  state.mapFilter ??= '';
   $('#mapFilters').innerHTML = MAP_FILTERS.map(([k, l]) => `<span class="chip ${state.mapFilter === k ? 'on' : ''}" data-mf="${k}">${k ? `<span class="dot" style="background:${MAP_COLORS[k]}"></span>` : ''}${l}</span>`).join('');
   $$('#mapFilters .chip').forEach(c => c.onclick = () => { state.mapFilter = c.dataset.mf; renderMap(); });
   const d = await api(`/users/${state.user}/map`);
-  const keep = j => !state.mapFilter || j.status === state.mapFilter;
+  const keep = j => !state.mapFilter || j.status === state.mapFilter || (state.mapFilter === 'ready' && j.status === 'manual');
   const placed = d.placed.filter(keep), remote = d.remote.filter(keep), unknown = d.unknown.filter(keep);
   if (!leafletMap) {
     leafletMap = L.map('leaflet').setView([53.35, -6.26], 11);
@@ -175,192 +459,94 @@ async function renderMap() {
   markerLayer.clearLayers();
   const groups = {}, cities = {};
   for (const j of placed) ((j.precision === 'city' ? cities : groups)[`${j.lat},${j.lng}`] ||= []).push(j);
-  // Jobs where only the city is known: one labelled bubble per city that lists them, not a pile of dots.
+  const item = j => `<div><span class="dot" style="background:${MAP_COLORS[j.status] || '#1d4ed8'}"></span><a href="${esc(j.url)}" target="_blank" rel="noopener">${esc(j.title)}</a> <span style="color:#6b7280">${esc(j.company)} · ${j.score ?? '–'}</span></div>`;
   for (const g of Object.values(cities)) {
     const n = g.length, size = Math.min(70, 30 + Math.sqrt(n) * 5);
-    const icon = L.divIcon({ className: '', iconSize: [size, size], html: `<div class="bubble" style="width:${size}px;height:${size}px">${n}</div>` });
-    L.marker([g[0].lat, g[0].lng], { icon }).bindPopup(`<b>${n} job${n > 1 ? 's' : ''} · ${esc(g[0].label)}</b><div class="plist">${g.sort((a, b) => (b.score || 0) - (a.score || 0))
-      .map(j => `<div><span class="dot" style="background:${MAP_COLORS[j.status] || '#1d4ed8'}"></span><a href="${esc(j.url)}" target="_blank" rel="noopener">${esc(j.title)}</a> <span style="color:#6b7280">${esc(j.company)} · ${j.score ?? '–'}</span></div>`).join('')}</div>`, { maxWidth: 360 })
-      .addTo(markerLayer);
+    L.marker([g[0].lat, g[0].lng], { icon: L.divIcon({ className: '', iconSize: [size, size], html: `<div class="bubble" style="width:${size}px;height:${size}px">${n}</div>` }) })
+      .bindPopup(`<b>${n} job${n > 1 ? 's' : ''} · ${esc(g[0].label)}</b><div class="plist">${g.sort((a, b) => (b.score || 0) - (a.score || 0)).map(item).join('')}</div>`, { maxWidth: 360 }).addTo(markerLayer);
   }
   for (const g of Object.values(groups)) g.forEach((j, i) => {
-    const m = L.circleMarker(spread(j, i, g.length), { radius: 8, weight: 2, color: '#fff', fillColor: MAP_COLORS[j.status] || '#1d4ed8', fillOpacity: j.precision === 'city' ? 0.55 : 0.95 });
-    m.bindPopup(`<b>${esc(j.title)}</b><br>${esc(j.company)}<br>Score ${j.score ?? '–'} · ${STATUS_LABEL[j.status] || j.status}<br><span style="color:#6b7280">${esc(j.label)}</span><br><a href="${esc(j.url)}" target="_blank" rel="noopener">Job posting ↗</a>`);
-    m.addTo(markerLayer);
+    L.circleMarker(spread(j, i, g.length), { radius: 8, weight: 2, color: '#fff', fillColor: MAP_COLORS[j.status] || '#1d4ed8', fillOpacity: 0.95 })
+      .bindPopup(`<b>${esc(j.title)}</b><br>${esc(j.company)}<br>Score ${j.score ?? '–'} · ${STATUS_LABEL[j.status] || j.status}<br><span style="color:#6b7280">${esc(j.label)}</span><br><a href="${esc(j.url)}" target="_blank" rel="noopener">Open the job ad ↗</a>`).addTo(markerLayer);
   });
-  const inDublin = placed.filter(j => Math.abs(j.lat - 53.35) < 0.3 && Math.abs(j.lng + 6.26) < 0.45);
   const exact = placed.filter(j => j.precision === 'area').length;
-  $('#mapNote').textContent = `${placed.length} jobs on the map (${inDublin.length} in the Dublin area): ${exact} with a known area, ${placed.length - exact} where the posting only names the city (numbered bubbles)`;
-  const item = j => `<div class="it"><span class="dot" style="background:${MAP_COLORS[j.status] || '#1d4ed8'}"></span><a href="${esc(j.url)}" target="_blank" rel="noopener">${esc(j.title)}</a><br><span class="muted">${esc(j.company)} · ${j.score ?? '–'}</span></div>`;
-  $('#mapSide').innerHTML = `<h3>Remote (${remote.length})</h3>${remote.map(item).join('') || '<p class="muted">None</p>'}
-    ${unknown.length ? `<h3>Location unclear (${unknown.length})</h3>${unknown.map(item).join('')}` : ''}`;
+  $('#mapNote').textContent = `${placed.length} jobs on the map: ${exact} with a known area, ${placed.length - exact} where the ad only names the town (numbered bubbles)`;
+  const side = j => `<div class="it">${item(j)}</div>`;
+  $('#mapSide').innerHTML = `<h3>Remote (${remote.length})</h3>${remote.map(side).join('') || '<p class="muted">None</p>'}${unknown.length ? `<h3>Location unclear (${unknown.length})</h3>${unknown.map(side).join('')}` : ''}`;
 }
 
-// ---- questions -------------------------------------------------------------------------------------------
+// ---- questions ---------------------------------------------------------------------------------------------
 async function renderQuestions() {
   const qs = await api(`/users/${state.user}/questions`);
   $('#qList').innerHTML = qs.length ? qs.map((q, i) => `
-    <div class="q">
-      <b>${esc(q.label)}</b>
+    <div class="q"><b>${esc(q.label)}</b>
       <div class="for">Asked by ${q.jobs.length} application${q.jobs.length > 1 ? 's' : ''}: ${esc(q.jobs.slice(0, 3).map(j => j.company).join(', '))}${q.jobs.length > 3 ? '…' : ''} · ${esc(q.why)}</div>
-      <div class="row"><input data-qi="${i}" placeholder="Your answer (for choices, type the option text)"><button class="primary" data-qs="${i}">Save</button></div>
-    </div>`).join('') : `<div class="card muted">No open questions. 🎉</div>`;
+      <div class="row"><input data-qi="${i}" placeholder="Your answer (for choices, type the option text)"><button class="primary" data-qs="${i}">Save</button></div></div>`).join('')
+    : `<div class="card muted">No open questions. 🎉</div>`;
   $$('[data-qs]').forEach(b => b.onclick = guard(async () => {
-    const i = +b.dataset.qs, val = $(`[data-qi="${i}"]`).value;
-    const r = await post(`/users/${state.user}/questions`, { question: qs[i].label, answer: val });
-    toast(r.requeued ? `Saved. ${r.requeued} application(s) will be prepared again on the next run.` : 'Saved. It will be used on every future form.');
-    await refresh(); renderQuestions();
+    const i = +b.dataset.qs;
+    const r = await post(`/users/${state.user}/questions`, { question: qs[i].label, answer: $(`[data-qi="${i}"]`).value });
+    toast(r.requeued ? `Saved. ${r.requeued} application(s) will be filled again on the next run.` : 'Saved. It will be used on every future form.');
+    await refresh();
   }));
 }
 
-// ---- profile steps --------------------------------------------------------------------------------------
+// ---- profile -----------------------------------------------------------------------------------------------
 $$('#steps button').forEach(b => b.onclick = () => { state.step = b.dataset.step; renderStep(); });
 function renderStep() {
   $$('#steps button').forEach(b => b.classList.toggle('on', b.dataset.step === state.step));
-  ({ cv: stepCv, about: stepAbout, search: stepSearch, rules: stepRules })[state.step]();
-}
-
-function stepCv() {
-  const d = state.data, w = d.onboarding?.warnings || [];
-  $('#stepBody').innerHTML = `
-    <div class="card">
-      <h2>${d.hasCv ? 'Your CV' : 'Start with your CV'}</h2>
-      <p class="muted">${d.hasCv ? 'This is the standard version. For each job, JobPilot reorders and rewords it to match the posting, but never adds facts, numbers, employers or dates.'
-        : 'Drop your CV here (PDF or Word). JobPilot reads it with AI and fills in your profile, suggests job titles, and builds a clean CV. It takes about a minute.'}</p>
-      <div class="drop" id="drop">📄 Drop your CV here or click to choose a file<input type="file" id="cvFile" accept=".pdf,.docx,.txt" hidden></div>
-      ${w.length ? `<h3>Please check these against your original CV</h3>${w.map(x => `<div class="warn">${esc(x)}</div>`).join('')}` : ''}
-    </div>
-    ${d.hasCv ? `<div class="card"><div class="row between"><h2>Preview</h2><span><a href="/api/users/${state.user}/cv.docx">Download Word</a> · <a href="/api/users/${state.user}/cv.pdf" target="_blank">Open PDF</a></span></div>
-      <iframe class="pdf" src="/api/users/${state.user}/cv.pdf?t=${Date.now()}"></iframe></div>` : ''}`;
-  const drop = $('#drop'), input = $('#cvFile');
-  drop.onclick = () => input.click();
-  drop.ondragover = e => { e.preventDefault(); drop.classList.add('over'); };
-  drop.ondragleave = () => drop.classList.remove('over');
-  const upload = guard(async file => {
-    if (!file) return;
-    if (d.hasCv && !confirm('Replace your profile with what is read from this CV? Your answers and job list are kept.')) return;
-    await fetch(`/api/users/${state.user}/upload-cv`, { method: 'POST', body: file, headers: { 'X-JobPilot': '1', 'X-Filename': encodeURIComponent(file.name) } })
-      .then(async r => { if (!r.ok) throw new Error((await r.json()).error); });
-    toast('Reading your CV… watch the progress on Home.'); showTab('home');
-  });
-  drop.ondrop = e => { e.preventDefault(); drop.classList.remove('over'); upload(e.dataTransfer.files[0]); };
-  input.onchange = () => upload(input.files[0]);
-}
-
-const field = (id, label, value, { type = 'text', help = '', options } = {}) => `<label>${label}${options
-  ? `<select id="${id}">${options.map(([v, l]) => `<option value="${esc(v)}" ${String(value ?? '') === String(v) ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select>`
-  : type === 'textarea' ? `<textarea id="${id}">${esc(value ?? '')}</textarea>` : `<input id="${id}" type="${type}" value="${esc(value ?? '')}">`}${help ? `<p class="help">${help}</p>` : ''}</label>`;
-const yn = [['', 'Choose…'], ['Yes', 'Yes'], ['No', 'No']];
-
-function stepAbout() {
-  const p = state.data.profile, e = p.education || {};
-  $('#stepBody').innerHTML = `
-    <div class="card"><h2>Contact details</h2><div class="grid2">
-      ${field('firstName', 'First name', p.firstName)}${field('lastName', 'Last name', p.lastName)}
-      ${field('email', 'Email for applications', p.email, { type: 'email' })}${field('phone', 'Phone (with country code)', p.phone, { help: 'e.g. +353 83 123 4567' })}
-      ${field('city', 'City', p.city)}${field('linkedin', 'LinkedIn profile URL', p.linkedin)}
-      ${field('currentEmployer', 'Current or last employer', p.currentEmployer)}${field('currentTitle', 'Current or last job title', p.currentTitle)}
-    </div></div>
-    <div class="card"><h2>Questions most forms ask</h2><p class="muted">Answered once here, used on every form. Leave one empty and you'll be asked when a form needs it.</p><div class="grid2">
-      ${field('workAuthorized', 'Are you allowed to work in Ireland?', p.workAuthorized, { options: yn })}
-      ${field('needsSponsorship', 'Do you need visa sponsorship?', p.needsSponsorship, { options: yn })}
-      ${field('visaStatus', 'Visa / permit status (in words)', p.visaStatus, { help: 'e.g. "EU citizen, no visa required" or "Stamp 4"' })}
-      ${field('nationality', 'Nationality', p.nationality)}
-      ${field('noticePeriod', 'Notice period', p.noticePeriod, { help: 'e.g. "1 month"' })}
-      ${field('noticeDays', 'Notice period in days', p.noticeDays, { type: 'number' })}
-      ${field('salaryText', 'Salary expectation (as you would write it)', p.salaryText, { help: 'e.g. "EUR 45,000 to 50,000 depending on the role"' })}
-      ${field('salaryNumber', 'Salary expectation (single number)', p.salaryNumber, { type: 'number', help: 'used when a form wants only a number' })}
-      ${field('onsiteOk', 'Happy to work in an office some days?', p.onsiteOk, { options: yn })}
-      ${field('shiftWorkOk', 'Happy to do shifts / on-call?', p.shiftWorkOk, { options: yn })}
-      ${field('basedInRegion', 'Are you based in Europe/EMEA?', p.basedInRegion || 'Yes', { options: yn })}
-      ${field('languages', 'Languages you speak (comma separated)', (p.languages || []).join(', '))}
-    </div></div>
-    <div class="card"><h2>Education (for forms with an education section)</h2><div class="grid2">
-      ${field('school', 'School / college', e.school)}
-      ${field('degreeOption', 'Degree level', e.degreeOption, { options: [['', 'Choose…'], ["High School", 'Leaving Cert / High School'], ["Associate's Degree", "Associate's / Higher Diploma"], ["Bachelor's Degree", "Bachelor's"], ["Master's Degree", "Master's"], ["Doctor of Philosophy (Ph.D.)", 'PhD'], ['Other', 'Other']] })}
-    </div><p class="help">Demographic questions (gender, ethnicity, disability…) are always answered "prefer not to say" or left blank.</p></div>
-    <div class="savebar"><button class="primary" id="saveAbout">Save</button></div>`;
-  $('#saveAbout').onclick = guard(async () => {
-    const v = id => $('#' + id).value.trim();
-    const fn = v('firstName'), ln = v('lastName');
-    await put(`/users/${state.user}/profile`, {
-      firstName: fn, lastName: ln, fullName: `${fn} ${ln}`.trim(), email: v('email'), phone: v('phone'), city: v('city'), linkedin: v('linkedin'),
-      currentEmployer: v('currentEmployer'), currentTitle: v('currentTitle'), workAuthorized: v('workAuthorized'), needsSponsorship: v('needsSponsorship'),
-      visaStatus: v('visaStatus'), nationality: v('nationality'), noticePeriod: v('noticePeriod'), noticeDays: +v('noticeDays') || 30,
-      salaryText: v('salaryText'), salaryNumber: +v('salaryNumber') || '', onsiteOk: v('onsiteOk'), shiftWorkOk: v('shiftWorkOk'), basedInRegion: v('basedInRegion'),
-      languages: v('languages').split(',').map(s => s.trim()).filter(Boolean),
-      locationText: [v('city'), state.data.profile.country || 'Ireland'].filter(Boolean).join(', '),
-      education: { ...e, school: v('school'), degreeOption: v('degreeOption'), degreeFallback: v('degreeOption') }
+  const d = state.data, body = $('#stepBody'), saveBar = `<div class="savebar"><button class="primary" id="saveStep">Save</button></div>`;
+  if (state.step === 'cv') {
+    const w = d.onboarding?.warnings || [], drop = cvDrop(() => { toast('Reading your CV… watch progress on Home.'); showTab('home'); });
+    body.innerHTML = `<div class="card"><h2>Your CV</h2><p class="muted">This is your standard version. For each job JobPilot reorders and rewords it to match the ad, but never adds facts, numbers, employers or dates.</p>
+      ${drop.html}${w.length ? `<h3>Please check these against your original CV</h3>${w.map(x => `<div class="warn">${esc(x)}</div>`).join('')}` : ''}</div>
+      ${d.hasCv ? `<div class="card"><div class="row between"><h2>Preview</h2><span><a href="/api/users/${state.user}/cv.docx">Download Word</a> · <a href="/api/users/${state.user}/cv.pdf" target="_blank">Open PDF</a></span></div>
+        <iframe class="pdf" src="/api/users/${state.user}/cv.pdf?t=${Date.now()}"></iframe></div>` : ''}`;
+    return drop.bind();
+  }
+  if (state.step === 'about') { body.innerHTML = aboutForm(d.profile) + saveBar; $('#saveStep').onclick = guard(async () => { await saveAbout(false); toast('Saved'); }); return; }
+  if (state.step === 'search') {
+    const se = d.settings.search, a = d.settings.apply, so = d.settings.sources;
+    const src = [['boards', 'Company career pages (Greenhouse, Ashby, Lever, Workable)'], ['linkedin', 'LinkedIn'], ['irishjobs', 'IrishJobs.ie and Jobs.ie'],
+      ['careerjet', 'CareerJet.ie'], ['publicjobs', 'publicjobs.ie (public sector)'], ['jobsireland', 'JobsIreland.ie'], ['workable', 'Workable search'],
+      ['jobicy', 'Remote job feed (Jobicy)'], ['workday', 'Workday employers'], ['jooble', 'Jooble (needs a free API key)']];
+    body.innerHTML = `<div class="card"><h2>Jobs to look for</h2>${titlePicker([], se.titles)}<p class="help">Search keywords update automatically from these titles.</p></div>
+      <div class="card"><h2>Where and how much</h2><div class="grid2">
+        ${field('city', 'Area', se.city)}
+        ${field('remote', 'Remote jobs too?', se.remote, { options: [['none', 'No, only jobs near me'], ['country', 'Yes, remote within Ireland'], ['europe', 'Yes, remote across Europe'], ['anywhere', 'Yes, remote anywhere']] })}
+        ${field('minSalary', 'Lowest yearly pay you would accept (€, 0 = any)', a.minSalary || 0, { type: 'number' })}
+        ${field('threshold', 'Recommend jobs scoring at least', a.threshold, { type: 'number', help: '70 is a good start. Lower = more jobs, more long shots.' })}
+        ${field('kitsPerRun', 'Tailored CV + letter packs per run', a.kitsPerRun ?? 10, { type: 'number' })}
+        ${field('excludeCompanies', 'Never apply to (comma separated)', se.excludeCompanies.join(', '))}</div></div>
+      <div class="card"><h2>Where to look</h2>${src.map(([k, l]) => `<label class="row"><input type="checkbox" id="src_${k}" style="width:auto" ${so[k] ? 'checked' : ''}> ${l}</label>`).join('')}
+        <div style="margin-top:10px">${field('joobleKey', 'Jooble API key (optional)', d.settings.joobleKey)}</div>
+        <details style="margin-top:10px"><summary class="muted">Advanced: title keywords</summary><p class="help">Include: ${esc(se.includeKeywords.join(', '))}</p><p class="help">Exclude: ${esc(se.excludeKeywords.join(', '))}</p></details></div>${saveBar}`;
+    bindTitlePicker();
+    $('#saveStep').onclick = guard(async () => {
+      const titles = pickedTitles(); if (!titles.length) throw new Error('Keep at least one job title');
+      await put(`/users/${state.user}/settings`, { search: { city: val('city'), remote: val('remote'), excludeCompanies: val('excludeCompanies').split(',').map(s => s.trim()).filter(Boolean) },
+        apply: { minSalary: +val('minSalary') || 0, threshold: Math.min(95, Math.max(30, +val('threshold') || 70)), kitsPerRun: Math.max(1, +val('kitsPerRun') || 10) },
+        sources: Object.fromEntries(src.map(([k]) => [k, $('#src_' + k).checked])), joobleKey: val('joobleKey') });
+      if (titles.join('|') !== se.titles.join('|')) await post(`/users/${state.user}/titles`, { titles });
+      toast('Saved'); state.data = await api(`/users/${state.user}`); renderStep();
     });
-    toast('Saved'); await refresh();
-  });
-}
-
-// Tag editor: chips with ×, Enter or comma adds.
-function tagbox(id, values) {
-  setTimeout(() => {
-    const box = $('#' + id), inp = box.querySelector('input');
-    const draw = () => { box.querySelectorAll('span').forEach(s => s.remove()); box._v.forEach((t, i) => {
-      const s = document.createElement('span'); s.innerHTML = `${esc(t)}<button title="Remove">×</button>`;
-      s.querySelector('button').onclick = () => { box._v.splice(i, 1); draw(); }; box.insertBefore(s, inp); }); };
-    box._v = [...values]; draw();
-    inp.onkeydown = e => { if ((e.key === 'Enter' || e.key === ',') && inp.value.trim()) { e.preventDefault(); box._v.push(inp.value.trim()); inp.value = ''; draw(); }
-      else if (e.key === 'Backspace' && !inp.value && box._v.length) { box._v.pop(); draw(); } };
-    inp.onblur = () => { if (inp.value.trim()) { box._v.push(inp.value.trim()); inp.value = ''; draw(); } };
-  });
-  return `<div class="tagbox" id="${id}"><input placeholder="type and press Enter"></div>`;
-}
-const tags = id => $('#' + id)._v;
-
-function stepSearch() {
-  const s = state.data.settings, se = s.search, a = s.apply, so = s.sources;
-  const src = [['boards', 'Company career pages (Greenhouse, Ashby, Lever, Workable): filled in automatically'], ['linkedin', 'LinkedIn'],
-    ['irishjobs', 'IrishJobs.ie and Jobs.ie'], ['careerjet', 'CareerJet.ie (collects jobs from many Irish sites)'], ['publicjobs', 'publicjobs.ie (public sector)'],
-    ['jobsireland', 'JobsIreland.ie (State employment service)'], ['workable', 'Workable search'], ['jobicy', 'Remote job feed (Jobicy)'], ['workday', 'Workday employers'], ['jooble', 'Jooble (needs a free API key)']];
-  $('#stepBody').innerHTML = `
-    <div class="card"><h2>Jobs you want</h2>
-      <label>Job titles to search for${tagbox('titles', se.titles)}<p class="help">Searched on LinkedIn, IrishJobs, Jobs.ie and others. 8-20 titles works well.</p></label>
-      <label style="margin-top:12px">A job title must contain one of these words${tagbox('inc', se.includeKeywords)}<p class="help">e.g. "accountant", "payroll", "administrator". Plurals match automatically.</p></label>
-      <label style="margin-top:12px">…and none of these${tagbox('exc', se.excludeKeywords)}<p class="help">e.g. "director", "intern", or other professions. Jobs requiring a language you don't speak are skipped automatically.</p></label>
-      <label style="margin-top:12px">Never apply to these companies${tagbox('excCo', se.excludeCompanies)}</label>
-    </div>
-    <div class="card"><h2>Where and how</h2><div class="grid2">
-      ${field('city', 'City', se.city)}
-      ${field('remote', 'Remote jobs', se.remote, { options: [['none', 'Only jobs in my city'], ['country', 'Also remote within Ireland'], ['europe', 'Also remote across Europe / EMEA'], ['anywhere', 'Also remote anywhere']] })}
-      ${field('minSalary', 'Lowest salary you would accept (EUR, 0 = any)', a.minSalary || 0, { type: 'number' })}
-      ${field('threshold', 'Only prepare jobs scoring at least', a.threshold, { type: 'number', help: '70 is a good start. Lower = more applications, more long shots.' })}
-      ${field('maxPerRun', 'Most applications to prepare per run', a.maxPerRun, { type: 'number' })}
-      ${field('tailorCv', 'Tailor the CV for each job', a.tailorCv ? '1' : '0', { options: [['1', 'Yes (recommended)'], ['0', 'No, always send the standard CV']] })}
-    </div></div>
-    <div class="card"><h2>Where to look</h2>${src.map(([k, l]) => `<label class="row"><input type="checkbox" id="src_${k}" style="width:auto" ${so[k] ? 'checked' : ''}> ${l}</label>`).join('')}
-      <div style="margin-top:10px">${field('joobleKey', 'Jooble API key (optional)', s.joobleKey, { help: 'Free from jooble.org/api/about' })}</div></div>
-    <div class="savebar"><button class="primary" id="saveSearch">Save</button></div>`;
-  $('#saveSearch').onclick = guard(async () => {
-    const v = id => $('#' + id).value.trim();
-    await put(`/users/${state.user}/settings`, {
-      search: { titles: tags('titles'), includeKeywords: tags('inc'), excludeKeywords: tags('exc'), excludeCompanies: tags('excCo'), city: v('city'), remote: v('remote') },
-      apply: { minSalary: +v('minSalary') || 0, threshold: Math.min(95, Math.max(30, +v('threshold') || 70)), maxPerRun: Math.max(1, +v('maxPerRun') || 25), tailorCv: v('tailorCv') === '1' },
-      sources: Object.fromEntries(src.map(([k]) => [k, $('#src_' + k).checked])), joobleKey: v('joobleKey')
-    });
-    toast('Saved'); await refresh();
-  });
-}
-
-function stepRules() {
-  const r = state.data.settings.rules || {};
-  $('#stepBody').innerHTML = `
-    <div class="card"><h2>Fine-tuning (optional)</h2><p class="muted">Plain-English instructions the AI follows when scoring jobs and writing for you.</p>
-      ${field('scoringGuidance', 'What makes a job a good or bad fit for you', r.scoringGuidance, { type: 'textarea', help: 'e.g. "Step-down roles are fine." "No sales-heavy roles."' })}
-      ${field('dealbreakers', 'Other dealbreakers', r.dealbreakers, { type: 'textarea', help: 'e.g. "Fully on-site roles outside Dublin." Salary and location are set in step 3.' })}
-      ${field('writingRules', 'How your cover letters and answers should sound', r.writingRules, { type: 'textarea', help: 'Leave empty for the default: plain, human, no buzzwords, three short paragraphs.' })}
-      ${field('notes', 'Anything else the AI should know', r.notes, { type: 'textarea' })}
-    </div>
-    <div class="card"><h2>What the AI reads (generated)</h2><pre class="log" style="height:auto;max-height:380px;background:var(--bg);color:var(--text)">${esc(state.data.rules)}</pre></div>
-    <div class="savebar"><button class="primary" id="saveRules">Save</button></div>`;
-  $('#saveRules').onclick = guard(async () => {
-    const v = id => $('#' + id).value.trim();
-    await put(`/users/${state.user}/settings`, { rules: { scoringGuidance: v('scoringGuidance'), dealbreakers: v('dealbreakers'), writingRules: v('writingRules'), notes: v('notes') } });
-    toast('Saved'); await refresh();
+    return;
+  }
+  if (state.step === 'mode') {
+    body.innerHTML = `<div class="card"><h2>How should JobPilot help?</h2>${modeChooser(d.settings)}</div>${saveBar}`;
+    bindModeChooser(); $('#saveStep').onclick = guard(async () => { await saveMode(); toast('Saved'); state.data = await api(`/users/${state.user}`); renderStep(); });
+    return;
+  }
+  const r = d.settings.rules || {};
+  body.innerHTML = `<div class="card"><h2>Fine-tuning (optional)</h2><p class="muted">Plain-English instructions the AI follows when scoring jobs and writing for you.</p>
+      ${field('scoringGuidance', 'What makes a job a good or bad fit for you', r.scoringGuidance, { type: 'textarea', help: 'e.g. "Any job is fine if it pays better." "No sales-heavy roles."' })}
+      ${field('dealbreakers', 'Other dealbreakers', r.dealbreakers, { type: 'textarea' })}
+      ${field('writingRules', 'How your cover letters should sound', r.writingRules, { type: 'textarea', help: 'Leave empty for the default: plain, friendly, three short paragraphs.' })}
+      ${field('notes', 'Anything else the AI should know', r.notes, { type: 'textarea' })}</div>
+    <div class="card"><h2>What the AI reads</h2><pre class="log" style="height:auto;max-height:380px;background:var(--bg);color:var(--text)">${esc(d.rules)}</pre></div>${saveBar}`;
+  $('#saveStep').onclick = guard(async () => {
+    await put(`/users/${state.user}/settings`, { rules: { scoringGuidance: val('scoringGuidance'), dealbreakers: val('dealbreakers'), writingRules: val('writingRules'), notes: val('notes') } });
+    toast('Saved'); state.data = await api(`/users/${state.user}`); renderStep();
   });
 }
 

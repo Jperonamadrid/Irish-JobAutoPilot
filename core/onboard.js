@@ -93,4 +93,24 @@ async function onboard(user, cvFile) {
   return { warnings };
 }
 
-module.exports = { onboard, factCheck };
+// Titles changed (picked, added, from the career explorer): rebuild the include/exclude keywords so
+// the person never has to edit keywords. Every title phrase is always included, and nothing that is
+// part of a chosen title can end up excluded.
+const KW_SCHEMA = { type: 'object', required: ['includeKeywords', 'excludeKeywords'], properties: { includeKeywords: A(S), excludeKeywords: A(S) } };
+async function refineKeywords(user, titles) {
+  let inc = [], exc = [];
+  try {
+    const r = await ask({ model: user.settings.models.score, schema: KW_SCHEMA,
+      system: 'You build job-title filters. includeKeywords: 15-50 short words/phrases found in titles of the wanted jobs and close variants (singular forms). excludeKeywords: words in titles of clearly unsuitable jobs (other professions, much more senior levels). Never exclude a word that appears in a wanted title.',
+      prompt: `Wanted job titles:\n${titles.join('\n')}\n\nCV summary: ${user.cv()?.summary || ''}` });
+    inc = r.includeKeywords; exc = r.excludeKeywords;
+  } catch (e) { log('keyword update used a simple fallback:', e.message); }
+  const titleWords = new Set(titles.flatMap(t => norm(t).split(' ')));
+  const include = [...new Set([...titles.map(t => norm(t)), ...inc.map(norm)].filter(Boolean))];
+  const exclude = [...new Set(exc.map(norm).filter(k => k && !k.split(' ').some(w => titleWords.has(w))))];
+  user.saveSettings({ search: { titles, includeKeywords: include, excludeKeywords: exclude } });
+  composeRules(user);
+  return { include, exclude };
+}
+
+module.exports = { onboard, factCheck, refineKeywords };

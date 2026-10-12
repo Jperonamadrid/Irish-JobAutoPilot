@@ -12,7 +12,7 @@ const { discoverBoards } = require('./discover');
 
 const AUTO_FILL = new Set(['greenhouse', 'ashby', 'lever', 'workable']);
 
-async function intake(user, store) {
+async function intake(user, store, { days: daysOverride } = {}) {
   const t0 = Date.now();
   const { settings, preset } = user;
   const s = settings.search, on = settings.sources;
@@ -20,7 +20,7 @@ async function intake(user, store) {
   const names = { ...preset.names };
   const ctx = { wanted, names, city: s.city, country: preset.country, countryCode: preset.countryCode };
   const titles = s.titles.length ? s.titles : s.includeKeywords.slice(0, 15);
-  const days = s.postedWithinDays;
+  const days = daysOverride || s.postedWithinDays;
   const fail = name => e => (log(`${name} failed (skipped this time): ${e.message.split('\n')[0]}`), []);
   const off = () => Promise.resolve([]);
 

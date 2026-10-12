@@ -1,5 +1,6 @@
-// Prepares applications: tailored CV + cover letter + every form field filled, then stops.
-// Nothing is ever submitted by the app; review() opens each one for the person to check and send.
+// Prepares applications: tailored CV + cover letter + every form field filled.
+// Submits only in "Apply for me" mode, behind canAutoSubmit() and a live check of the form;
+// otherwise review() opens each one for the person to check and send.
 const fs = require('fs');
 const path = require('path');
 const { log, today, norm } = require('./util');
@@ -13,7 +14,8 @@ const safe = id => id.replace(/[^\w.-]+/g, '_');
 // Per-run and per-company limits, including published caps like OpenAI's 5 per 180 days.
 function pick(user, store, { ids, limit, statuses }) {
   if (ids?.length) return ids.map(id => store.get(id)).filter(Boolean);
-  const { maxPerRun, maxPerCompanyPerRun, companyCaps } = user.settings.apply;
+  const { maxPerRun, companyCaps } = user.settings.apply;
+  const maxPerCompanyPerRun = user.settings.mode === 'auto' ? 1 : user.settings.apply.maxPerCompanyPerRun;
   const perCompany = {};
   const sent = (company, days) => store.where(j => norm(j.company) === company && j.status === 'submitted' &&
     Date.parse(j.submittedAt || 0) > Date.now() - days * 86400000).length;
@@ -26,6 +28,36 @@ function pick(user, store, { ids, limit, statuses }) {
       return true;
     })
     .slice(0, limit ?? maxPerRun);
+}
+
+// ---- auto-apply gates ---------------------------------------------------------------------------
+const autoToday = store => store.where(j => j.autoSubmitted && (j.submittedAt || '').slice(0, 10) === today()).length;
+
+// Every condition must hold before the app submits on its own. Returns { ok, why }.
+function canAutoSubmit(user, store, job, pending) {
+  const a = user.settings.auto || {};
+  if (user.settings.mode !== 'auto') return { ok: false, why: 'mode is "help me apply"' };
+  if (!a.consentAt) return { ok: false, why: 'auto-apply has not been switched on by you' };
+  if ((job.score ?? 0) < a.minScore) return { ok: false, why: `score ${job.score} is below your auto-apply minimum of ${a.minScore}` };
+  if (pending.length) return { ok: false, why: 'some questions need your answer' };
+  if (autoToday(store) >= a.dailyLimit) return { ok: false, why: `today's limit of ${a.dailyLimit} automatic applications is reached` };
+  return { ok: true };
+}
+
+// Last check on the real page: any required field still empty means we do not submit.
+async function emptyRequired(page) {
+  return page.evaluate(() => {
+    const empty = [];
+    const label = el => (el.labels?.[0]?.innerText || el.getAttribute('aria-label') || el.name || el.id || 'a field').trim().slice(0, 80);
+    const radios = new Set();
+    for (const el of document.querySelectorAll('input[required], select[required], textarea[required], [aria-required="true"]')) {
+      if (el.disabled || el.type === 'file' || el.type === 'hidden' || el.closest('[hidden], [aria-hidden="true"] [aria-hidden="true"]')) continue;
+      if (el.type === 'radio') { if (radios.has(el.name)) continue; radios.add(el.name); if (!document.querySelector(`input[type=radio][name="${CSS.escape(el.name)}"]:checked`)) empty.push(label(el)); continue; }
+      if (el.type === 'checkbox') { if (!el.checked) empty.push(label(el)); continue; }
+      if ('value' in el && !String(el.value || '').trim()) empty.push(label(el));
+    }
+    return [...new Set(empty)];
+  });
 }
 
 // Fill one job's form in `browser`. Returns the open page when keepOpen, otherwise closes it.
@@ -65,6 +97,31 @@ async function prepareOne(user, browser, store, job, { keepOpen = false } = {}) 
   }, pending.length ? `${pending.length} open question(s)` : 'prepared');
   log(`${pending.length ? 'needs you    ' : 'prepared     '} ${job.score ?? '--'} ${job.company} | ${job.title}` +
     (pending.length ? `  (${pending.map(p => p.label).join('; ').slice(0, 110)})` : ''));
+
+  // Auto-apply: only when every gate passes and the live page has no empty required field.
+  if (!keepOpen) {
+    const gate = canAutoSubmit(user, store, store.get(job.id), pending);
+    if (gate.ok) {
+      const empty = await emptyRequired(page).catch(() => ['(could not check the form)']);
+      if (empty.length) {
+        store.update(job.id, { status: 'needs_input', pending: empty.map(l => ({ key: 'page', label: l, why: 'could not fill: still empty on the form' })) }, 'not auto-submitted: empty required fields');
+        log(`  not submitted automatically: ${empty.length} required field(s) still empty`);
+      } else {
+        const o = await ad.submit(page);
+        await page.screenshot({ path: shot.replace('.png', '-submitted.png'), fullPage: true }).catch(() => {});
+        if (o.status === 'submitted') {
+          store.update(job.id, { status: 'submitted', submittedAt: new Date().toISOString(), autoSubmitted: true, submittedShot: path.relative(user.dir, shot.replace('.png', '-submitted.png')) }, 'submitted automatically');
+          log(`  ✔ submitted automatically`);
+        } else if (o.status === 'needs_input') {
+          store.update(job.id, { status: 'needs_input', pending: [{ key: 'submit', label: 'Finish submitting', why: o.detail }] }, o.detail);
+          log(`  not submitted: ${o.detail}; it is in your list to finish by hand`);
+        } else {
+          store.update(job.id, { status: 'failed', error: `automatic submit did not complete (${o.detail})` }, o.detail);
+          log(`  submit did not complete: ${o.detail}; please check this one by hand`);
+        }
+      }
+    }
+  }
   if (keepOpen) return page;
   await page.close();
   return null;
@@ -118,4 +175,4 @@ async function review(user, store, { ids, onStep } = {}) {
   } finally { await browser.close().catch(() => {}); await closePdf(); }
 }
 
-module.exports = { prepare, review, prepareOne, pick, adapters };
+module.exports = { prepare, review, prepareOne, pick, adapters, canAutoSubmit, emptyRequired };
