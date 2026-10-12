@@ -39,7 +39,9 @@ const DEFAULT_SETTINGS = {
   setupDone: false,
   schedule: { on: false, time: '08:30', days: 'weekdays', lastRun: null },   // automatic daily run (see schedule.js)
   joobleKey: '',
-  models: { score: 'haiku', answer: 'sonnet' }
+  // Which Claude model does each kind of work (Profile → Fine-tuning). "opus", "sonnet" and "haiku"
+  // always mean the newest of each in Claude Code; a full model id (claude-...) pins one version.
+  models: { score: 'opus', answer: 'opus' }
 };
 
 // Languages that, when named in a job title, usually mean the role requires them.
@@ -128,4 +130,6 @@ function createUser(name) {
   return new User(id);
 }
 
-module.exports = { User, listUsers, createUser, keywordMatcher, locationMatcher, DEFAULT_SETTINGS, deepMerge };
+const MODEL_RE = /^(opus|sonnet|haiku|claude-[a-z0-9.-]+)$/;
+
+module.exports = { User, listUsers, createUser, keywordMatcher, locationMatcher, DEFAULT_SETTINGS, deepMerge, MODEL_RE };

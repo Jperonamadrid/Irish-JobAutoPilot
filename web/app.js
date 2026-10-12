@@ -734,15 +734,21 @@ function renderStep() {
     bindModeChooser(); $('#saveStep').onclick = guard(async () => { await saveMode(); toast('Saved'); state.data = await api(`/users/${state.user}`); renderStep(); });
     return;
   }
-  const r = d.settings.rules || {};
-  body.innerHTML = `<div class="card"><h2>Fine-tuning (optional)</h2><p class="muted">Plain-English instructions the AI follows when scoring jobs and writing for you.</p>
+  const r = d.settings.rules || {}, md = d.settings.models || {};
+  const MODELS = [['opus', 'Claude Opus: best quality (default)'], ['sonnet', 'Claude Sonnet: faster, uses less of your Claude plan'], ['haiku', 'Claude Haiku: fastest, uses the least']];
+  const modelOpts = cur => MODELS.some(([v]) => v === cur) ? MODELS : [...MODELS, [cur, cur]];   // keep a pinned model id someone set by hand
+  body.innerHTML = `<div class="card"><h2>AI models</h2><p class="muted">Which Claude model does the work. Opus gives the best results; Sonnet or Haiku make runs quicker and use less of your Claude plan.</p><div class="grid2">
+      ${field('modelScore', 'Scoring jobs (many short checks every run)', md.score || 'opus', { options: modelOpts(md.score || 'opus'), help: 'Scoring is most of the AI use in a daily run. Haiku here cuts it the most.' })}
+      ${field('modelAnswer', 'Writing: CVs, cover letters, form answers, interview prep', md.answer || 'opus', { options: modelOpts(md.answer || 'opus') })}</div></div>
+    <div class="card"><h2>Fine-tuning (optional)</h2><p class="muted">Plain-English instructions the AI follows when scoring jobs and writing for you.</p>
       ${field('scoringGuidance', 'What makes a job a good or bad fit for you', r.scoringGuidance, { type: 'textarea', help: 'e.g. "Any job is fine if it pays better." "No sales-heavy roles."' })}
       ${field('dealbreakers', 'Other dealbreakers', r.dealbreakers, { type: 'textarea' })}
       ${field('writingRules', 'How your cover letters should sound', r.writingRules, { type: 'textarea', help: 'Leave empty for the default: plain, friendly, three short paragraphs.' })}
       ${field('notes', 'Anything else the AI should know', r.notes, { type: 'textarea' })}</div>
     <div class="card"><h2>What the AI reads</h2><pre class="log" style="height:auto;max-height:380px;background:var(--bg);color:var(--text)">${esc(d.rules)}</pre></div>${saveBar}`;
   $('#saveStep').onclick = guard(async () => {
-    await put(`/users/${state.user}/settings`, { rules: { scoringGuidance: val('scoringGuidance'), dealbreakers: val('dealbreakers'), writingRules: val('writingRules'), notes: val('notes') } });
+    await put(`/users/${state.user}/settings`, { models: { score: val('modelScore'), answer: val('modelAnswer') },
+      rules: { scoringGuidance: val('scoringGuidance'), dealbreakers: val('dealbreakers'), writingRules: val('writingRules'), notes: val('notes') } });
     toast('Saved'); state.data = await api(`/users/${state.user}`); renderStep();
   });
 }

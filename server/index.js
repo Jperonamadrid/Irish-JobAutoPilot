@@ -6,7 +6,7 @@ const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
 const { ROOT, readJson, writeJson } = require('../core/util');
-const { User, listUsers, createUser } = require('../core/user');
+const { User, listUsers, createUser, MODEL_RE } = require('../core/user');
 const { Store } = require('../core/store');
 const { openQuestions, answer, fillProblems } = require('../core/questions');
 const { composeRules } = require('../core/rules');
@@ -157,7 +157,9 @@ async function api(req, res, url) {
     // Arrays replace rather than merge.
     const cur = readJson(u.paths.settings, {});
     delete b.schedule?.lastRun;
-    for (const k of ['search', 'apply', 'sources', 'rules', 'auto', 'schedule']) if (b[k]) cur[k] = { ...(cur[k] || {}), ...b[k] };
+    for (const [k, v] of Object.entries(b.models || {}))
+      if (!['score', 'answer'].includes(k) || !MODEL_RE.test(String(v))) return send(res, 400, { error: `Unknown AI model "${v}"` });
+    for (const k of ['search', 'apply', 'sources', 'rules', 'auto', 'schedule', 'models']) if (b[k]) cur[k] = { ...(cur[k] || {}), ...b[k] };
     for (const k of ['joobleKey', 'preset', 'mode', 'setupDone']) if (b[k] !== undefined) cur[k] = b[k];
     if (b.schedule) cur.schedule = schedule.onSave({ ...u.settings, ...cur, schedule: { ...u.settings.schedule, ...cur.schedule } });
     writeJson(u.paths.settings, cur); u.reload(); composeRules(u);

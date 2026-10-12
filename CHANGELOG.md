@@ -4,6 +4,7 @@ JobPilot checks this file to tell you what changed when a new version is out. To
 version: raise `version` in package.json, add a section here with the same number, push to main.
 
 ## 0.2.0 (2026-10-12)
+- Uses Claude Opus by default for everything. Choose Opus, Sonnet or Haiku for scoring and for writing in Profile → Fine-tuning.
 - Updates: JobPilot tells you when a new version is out and what changed, and installs it with one click (your CV, answers and jobs are kept).
 - One-step installers for Windows, macOS and Linux: one command installs everything JobPilot needs.
 - More places to find jobs: RecruitIreland.com, Remote OK, and company job pages on SmartRecruiters, Recruitee and Personio.

@@ -83,7 +83,15 @@ Your passwords are never stored by JobPilot. *Sign in to job sites* opens a norm
 
 ## Cost
 
-AI calls go through your Claude Code plan. Typical usage measured at API prices: about **0.5¢ per job scored** and **10-15¢ per application prepared** (tailored CV, cover letter, answers). A daily run is usually **$1-3**.
+AI calls go through your Claude Code plan. JobPilot uses **Claude Opus** for everything by default, for the best scoring and writing. You can choose a model for each kind of work in **Profile → Fine-tuning → AI models** (or `node cli.js models <scoring> <writing>`):
+
+| | Best for | Plan use (current API prices per token) |
+|---|---|---|
+| **Opus** (default) | best judgement and writing | highest: about 2× Sonnet, 40× Haiku |
+| **Sonnet** | nearly as good, faster | about half of Opus |
+| **Haiku** | quick checks | a small fraction of Opus |
+
+Scoring jobs is most of the AI use in a daily run (one short check per new job), so setting **scoring to Haiku** and keeping **writing on Opus** cuts usage the most while keeping CVs and letters at their best. Measured with Haiku scoring and Sonnet writing, a daily run was about $1-3 at API prices; with Opus for everything expect several times that, or more of your plan's usage.
 
 ## How it works
 

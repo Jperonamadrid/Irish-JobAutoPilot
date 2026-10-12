@@ -9,6 +9,7 @@ const { Store } = require('./core/store');
 
 const HELP = `JobPilot
   doctor                       check that everything needed is installed
+  models [score] [answer] --user ID   show or set the AI models (opus | sonnet | haiku), e.g. models haiku opus
   update [--install]           is there a newer JobPilot? --install installs it (your data is kept)
   users                        list people set up on this computer
   create "<Full Name>"         add a person
@@ -111,6 +112,14 @@ function teeLog(user) {
     case 'review': await require('./core/apply').review(user, store(), { ids: positional }); break;
     case 'login': await require('./core/login').login(user, positional); break;
     case 'status': console.table(store().counts()); break;
+    case 'models': {
+      const { MODEL_RE } = require('./core/user');
+      const [score, answer] = positional;
+      for (const m of [score, answer].filter(Boolean)) if (!MODEL_RE.test(m)) throw new Error(`Unknown model "${m}": use opus, sonnet, haiku or a full claude-... id`);
+      if (score) user.saveSettings({ models: { score, ...(answer ? { answer } : {}) } });
+      log(`scoring jobs: ${user.settings.models.score}; writing: ${user.settings.models.answer}`);
+      break;
+    }
     case 'prep': if (!positional[0]) throw new Error('Say which job: prep <id>'); await require('./core/prep').prep(user, store(), positional[0]); break;
     case 'results': {
       const r = require('./core/outcomes').stats(store()), t = r.total;
