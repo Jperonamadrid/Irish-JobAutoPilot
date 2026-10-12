@@ -68,6 +68,10 @@ function connect() {
     const line = JSON.parse(e.data);
     for (const l of [$('#log'), $('#wizLog')]) if (l) { l.textContent += line + '\n'; l.scrollTop = l.scrollHeight; }
   });
+  es.addEventListener('result', e => {
+    state.lastResult = JSON.parse(e.data);
+    if (state.lastResult && !state.lastResult.ok) toast('Something went wrong: ' + (state.lastResult.error || 'see the Activity log on Home'), 12000);
+  });
   es.addEventListener('task', e => {
     const t = JSON.parse(e.data), was = state.task;
     state.task = t;
@@ -90,7 +94,7 @@ const val = id => ($('#' + id)?.value ?? '').trim();
 
 function cvDrop(after) {
   return {
-    html: `<div class="drop" id="drop">📄 <b>Drop your CV here</b> or click to choose a file<br><span class="muted">PDF or Word</span><input type="file" id="cvFile" accept=".pdf,.docx,.txt" hidden></div>`,
+    html: `<div class="drop" id="drop">📄 <b>Drop your CV here</b> or click to choose a file<br><span class="muted">PDF or Word</span><input type="file" id="cvFile" accept=".pdf,.docx,.doc,.odt,.rtf,.txt" hidden></div>`,
     bind() {
       const drop = $('#drop'), input = $('#cvFile');
       drop.onclick = () => input.click();
@@ -215,15 +219,29 @@ function renderWizard() {
     const drop = cvDrop(() => {
       body.innerHTML = `<div class="card"><h2>Reading your CV…</h2><p class="muted">About a minute. You can watch what it is doing:</p><pre id="wizLog" class="log" style="height:180px"></pre></div>`;
       onTaskDone.push(() => {
-        if (!state.data.hasCv) return toast('The CV could not be read. Try a PDF or Word file with real text (not a photo).', 9000), go(0);
+        const r = state.lastResult;
+        if (!state.data.hasCv || (r && !r.ok)) { state.cvError = r?.error || 'The CV could not be read.'; return go(0); }
+        state.cvError = null;
         const w = state.data.onboarding?.warnings || [];
         if (w.length) toast(`${w.length} line(s) differ from your original CV: please check them in Profile → Your CV.`, 9000);
         go(1);
       });
     });
     body.innerHTML = `<div class="card"><h2>Hi ${esc(d.profile.firstName || d.profile.fullName || '')}! Let's start with your CV</h2>
-      <p>JobPilot reads it, fills in your details, and suggests jobs you could do.</p>${drop.html}</div>`;
-    return drop.bind();
+      <p>JobPilot reads it, fills in your details, and suggests jobs you could do.</p>
+      ${state.cvError ? `<div class="problem"><b>That did not work:</b> ${esc(state.cvError)}</div>` : ''}
+      <div id="aiState" class="muted">Checking that the AI (Claude Code) is ready…</div><div id="dropWrap" class="hide">${drop.html}</div></div>`;
+    drop.bind();
+    const check = async fresh => {
+      $('#aiState').className = 'muted'; $('#aiState').textContent = 'Checking that the AI (Claude Code) is ready… (up to a minute)';
+      const r = await api('/ai-check' + (fresh ? '?fresh=1' : '')).catch(e => ({ ok: false, detail: e.message }));
+      if (!$('#aiState')) return;
+      if (r.ok) { $('#aiState').className = 'okbox'; $('#aiState').textContent = '✓ The AI is ready.'; $('#dropWrap').classList.remove('hide'); }
+      else { $('#aiState').className = 'problem'; $('#aiState').innerHTML = `<b>The AI is not ready yet, so your CV cannot be read.</b><br>${esc(r.detail)}<br><button id="aiAgain" class="small" style="margin-top:8px">Check again</button>`;
+        $('#aiAgain').onclick = () => check(true); }
+    };
+    check(false);
+    return;
   }
   if (i === 1) {
     body.innerHTML = aboutForm(d.profile) + nav();

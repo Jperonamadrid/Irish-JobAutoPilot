@@ -37,3 +37,13 @@ test('onboarding fact check flags numbers and lines not in the original CV', () 
   assert.ok(w.some(x => /budget/.test(x)), 'invented line flagged');
   assert.ok(!w.some(x => /Entra/.test(x)), 'faithful line not flagged');
 });
+
+test('CV intake errors are explained in plain words', async () => {
+  const { fileText } = require('../core/pdftext');
+  await assert.rejects(fileText('old-cv.doc'), /Save as/);
+  await assert.rejects(fileText('cv.pages'), /Save as/);
+  const { explain } = require('../core/llm');
+  assert.match(explain('Invalid API key · Please run /login'), /not signed in/);
+  assert.match(explain('Claude Code on Windows requires git-bash'), /Git for Windows/);
+  assert.match(explain('Usage limit reached'), /limit/);
+});

@@ -39,7 +39,8 @@ async function fileText(file) {
   if (/\.pdf$/i.test(file)) return pdfText(file);
   if (/\.docx$/i.test(file)) return docxText(file);
   if (/\.(txt|md)$/i.test(file)) return fs.readFileSync(file, 'utf8');
-  throw new Error('Unsupported CV format. Use PDF, DOCX or TXT.');
+  if (/\.(doc|odt|rtf|pages)$/i.test(file)) throw new Error('This is an older or different document format. Open it in Word (or Google Docs) and use "Save as" or "Download" as .docx or PDF, then upload that.');
+  throw new Error('Unsupported CV format. Please upload a PDF or Word (.docx) file.');
 }
 
 module.exports = { pdfText, pdfPages, docxText, fileText };

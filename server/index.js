@@ -21,6 +21,8 @@ const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; ch
 const clients = new Set();
 const history = [];   // recent log lines for pages opened mid-task
 let task = null;      // { id, user, name, startedAt, proc }
+let aiOk = 0;          // time Claude Code last answered the check
+let lastResult = null; // outcome of the last finished task, so the page can explain a failure
 function broadcast(event, data) {
   const msg = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
   for (const c of clients) c.write(msg);
@@ -46,8 +48,11 @@ function startTask(userId, name, args = []) {
   proc.stdout.on('data', onData); proc.stderr.on('data', onData);
   proc.on('close', code => {
     if (buf) emit(buf);
+    task.error = code ? (history.filter(l => /ERROR:/.test(l)).pop() || '').replace(/^.*ERROR:\s*/, '') || 'it stopped unexpectedly' : null;
+    lastResult = { name: task.name, user: task.user, ok: code === 0, error: task.error, at: Date.now() };
     emit(code === 0 ? `✔ ${task.label} finished` : `✖ ${task.label} stopped${code ? ' with an error' : ''}`);
     task = null;
+    broadcast('result', lastResult);
     broadcast('task', null);
   });
   return publicTask();
@@ -101,6 +106,15 @@ async function api(req, res, url) {
     clients.add(res); req.on('close', () => clients.delete(res));
     return;
   }
+  if (parts[0] === 'ai-check') {
+    // Is Claude Code installed and signed in? Cached for 10 minutes once it works.
+    if (!aiOk || Date.now() - aiOk > 600000 || url.searchParams.get('fresh')) {
+      const r = await require('../core/llm').check();
+      aiOk = r.ok ? Date.now() : 0;
+      return send(res, 200, r);
+    }
+    return send(res, 200, { ok: true, detail: 'Claude Code is ready' });
+  }
   if (parts[0] === 'quiz') return send(res, 200, require('../core/careers').QUIZ);
   if (parts[0] === 'doctor') return send(res, 200, await require('../core/doctor').doctor({ skipAi: url.searchParams.get('ai') !== '1' }));
   if (parts[0] === 'task') {
@@ -146,7 +160,8 @@ async function api(req, res, url) {
   if (what === 'upload-cv' && m === 'POST') {
     const name = decodeURIComponent(req.headers['x-filename'] || 'cv.pdf');
     const ext = path.extname(name).toLowerCase();
-    if (!['.pdf', '.docx', '.txt'].includes(ext)) return send(res, 400, { error: 'Please upload a PDF, Word (.docx) or text file.' });
+    if (['.doc', '.odt', '.rtf', '.pages'].includes(ext)) return send(res, 400, { error: 'This is an older document format. Open it in Word and "Save as" .docx or PDF, then upload that.' });
+    if (!['.pdf', '.docx', '.txt'].includes(ext)) return send(res, 400, { error: 'Please upload a PDF or Word (.docx) file.' });
     const file = u.p(`source-cv${ext}`);
     fs.writeFileSync(file, await readBody(req));
     return send(res, 200, startTask(u.id, 'onboard', [file]));

@@ -51,8 +51,10 @@ function factCheck(sourceText, cv) {
 // Run onboarding for `user` from a CV file already saved in their folder.
 async function onboard(user, cvFile) {
   log('reading your CV…');
-  const text = (await fileText(cvFile)).trim();
-  if (text.length < 300) throw new Error('Could not read enough text from that CV. If it is a scanned image, export it as a text PDF or Word file.');
+  let text;
+  try { text = (await fileText(cvFile)).trim(); }
+  catch (e) { throw new Error(/format|Save as/.test(e.message) ? e.message : `That file could not be opened (${e.message.slice(0, 120)}). Try saving it again as PDF or .docx.`); }
+  if (text.length < 300) throw new Error('Could not read enough text from that CV: it may be a scanned picture or a photo. Open it in Word and save as PDF, or upload the original Word (.docx) file.');
   log('extracting your profile with AI (about a minute)…');
   const r = await ask({ model: user.settings.models.answer, system: SYSTEM, schema: SCHEMA, timeout: 400000,
     prompt: `# CV text\n${text.slice(0, 20000)}\n\nThe person searches for jobs in ${user.preset.label}.` });
