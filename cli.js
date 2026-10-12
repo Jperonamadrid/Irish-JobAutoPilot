@@ -26,7 +26,9 @@ const HELP = `JobPilot
   login [urls...]    --user ID open this person's browser to sign in to job sites by hand
   locate             --user ID find office areas for the map (jobs scored before areas were recorded)
   status             --user ID job counts
-  mark <id> <status> --user ID e.g. mark li:123 submitted (after applying by hand)`;
+  mark <id> <status> --user ID e.g. mark li:123 submitted (after applying by hand)
+  mark <id> <outcome> --user ID after applying: replied | interview | offer | rejected | no_reply | waiting
+  results            --user ID replies, interviews and follow-ups due`;
 
 const args = process.argv.slice(2);
 const cmd = args[0];
@@ -97,9 +99,22 @@ function teeLog(user) {
     case 'review': await require('./core/apply').review(user, store(), { ids: positional }); break;
     case 'login': await require('./core/login').login(user, positional); break;
     case 'status': console.table(store().counts()); break;
+    case 'results': {
+      const r = require('./core/outcomes').stats(store()), t = r.total;
+      log(`applied ${t.applied}: heard back ${t.responded} (${t.responseRate}%), interviews ${t.interviews}, offers ${t.offers}, no reply ${t.noReply}`);
+      for (const [name, rows] of [['by source', r.bySource], ['by CV', r.byCv], ['by fit score', r.byScore]])
+        log(name + ': ' + rows.map(x => `${x.label} ${x.responded}/${x.applied}`).join(', '));
+      for (const n of r.nudges) log(`${n.nudge.kind === 'follow_up' ? 'follow up' : 'no reply?'}  ${n.nudge.days}d  ${n.company} | ${n.title}  (${n.id})`);
+      break;
+    }
     case 'mark': {
       const [id, status] = positional, s = store();
       if (!s.get(id)) throw new Error(`No job ${id}`);
+      if (require('./core/outcomes').OUTCOMES[status]) {
+        if (s.get(id).status !== 'submitted') throw new Error(`Mark ${id} as submitted first`);
+        s.update(id, { outcome: status, outcomeAt: new Date().toISOString() }, 'marked by hand'); s.save();
+        log(`${id} outcome -> ${status}`); break;
+      }
       s.update(id, { status, ...(status === 'submitted' ? { submittedAt: new Date().toISOString() } : {}) }, 'marked by hand'); s.save();
       log(`${id} -> ${status}`); break;
     }

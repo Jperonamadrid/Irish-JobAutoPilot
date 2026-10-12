@@ -40,6 +40,7 @@ After that, press **Daily run** on Home. It finds new jobs, scores them, makes C
 - **Market** shows demand, stated pay, who is hiring, and suggested titles to add.
 - **Map** shows where the jobs are.
 - **Careers** lets you retake the quiz.
+- **Results** tracks what happened after you applied: record replies, interviews, offers and rejections, get a reminder to follow up after 10 days with no reply, and see which job sites, CV versions and fit scores actually get you answers.
 - **Questions** shows anything a form asked that your profile could not answer. Answer it once and it is reused everywhere.
 
 Several people can use one install: each has their own profile, CV, answers, job list and browser logins (*+ Person* in the top bar).
@@ -47,7 +48,7 @@ Several people can use one install: each has their own profile, CV, answers, job
 ## Safety and honesty rules built in
 
 - **Nothing is submitted in "Help me apply" mode.** "Apply for me" must be switched on by the person, with a confirmation. It only submits when the fit score is at or above their minimum (80 by default), every required question was answered from their own profile, and a final check of the live form finds no empty required field. It submits at most the daily limit (10 by default) and one application per company per run, and keeps a screenshot of every submission.
-- **Never invents facts.** Tailored CVs may reorder, reword and trim, but a fact check rejects any new employer, title, date, number, skill or qualification and falls back to your standard CV. Every job shows what was changed.
+- **Never invents facts.** Tailored CVs may reorder, reword and trim, but a fact check rejects any new employer, title, date, number, skill or qualification (including a tool or product name slipped into a reworded bullet) and falls back to your standard CV. Every job shows what was changed.
 - **Always asks you** about legal waivers (arbitration), "I did not use AI" attestations, criminal record, non-compete and anything your profile does not cover. These are never auto-submitted.
 - **Demographic questions** (gender, ethnicity, disability…) are answered "prefer not to say" or left blank.
 - **Honest answers and estimates:** if a form asks for 8 years of experience and you have 4, it says no. Career salary ranges are labelled as estimates; pay figures in the market report come only from what job ads state.
@@ -79,6 +80,7 @@ core/cv.js                   CV rendering (PDF + Word), per-job tailoring and th
 core/ats/                    one form-filler per application system
 core/apply.js                fill forms; review (you submit); auto-apply gates (Apply for me mode)
 core/kit.js                  tailored CV + cover letter pack and the "what changed" list
+core/outcomes.js             after applying: replies, interviews, follow-up reminders, what gets answers
 core/market.js               market report (demand, stated pay, hiring companies)
 core/careers.js              career quiz + live demand/pay check via CareerJet
 core/geo.js                  rough job locations for the map (built-in list of Irish places)
