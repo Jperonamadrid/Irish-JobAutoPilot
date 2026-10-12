@@ -74,6 +74,17 @@ async function htmlToPdf(html, file, { margin = '18mm' } = {}) {
 async function closePdf() { if (pdfBrowser) await pdfBrowser.close().catch(() => {}); pdfBrowser = null; }
 
 const esc = s => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+// Editable Word copy of a cover letter, next to the PDF.
+async function letterDocx(file, text) {
+  const { Document, Packer, Paragraph, TextRun } = require('docx');
+  const doc = new Document({ styles: { default: { document: { run: { font: 'Calibri', size: 22 } } } },
+    sections: [{ children: text.split(/\n\s*\n/).map(p => new Paragraph({ spacing: { after: 200 },
+      children: p.split('\n').flatMap((l, i) => [new TextRun({ text: l, break: i ? 1 : 0 })]) })) }] });
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, await Packer.toBuffer(doc));
+  return file;
+}
+
 async function letterPdf(file, text) {
   const body = `<div style="font:11pt/1.5 Carlito,Calibri,sans-serif">${text.split(/\n\s*\n/).map(p => `<p>${esc(p).replace(/\n/g, '<br>')}</p>`).join('')}</div>`;
   fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -81,4 +92,4 @@ async function letterPdf(file, text) {
   return htmlToPdf(body, file, { margin: '25mm' });
 }
 
-module.exports = { launch, pickCombo, outcome, htmlToPdf, letterPdf, closePdf, canShowWindow, esc };
+module.exports = { launch, pickCombo, outcome, htmlToPdf, letterPdf, letterDocx, closePdf, canShowWindow, esc };

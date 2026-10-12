@@ -380,7 +380,7 @@ function jobCard(j) {
       ${j.status === 'needs_input' ? `<div class="why">Waiting on: ${esc(j.pending.map(p => p.label).join('; ').slice(0, 220))}</div>` : ''}
       ${j.problems.length || j.error ? `<div class="why" style="color:var(--red)">${esc(j.error || j.problems.map(p => p.label + ': ' + p.why).join('; ').slice(0, 220))}</div>` : ''}
       ${k ? `<details class="kit"><summary>📎 Your tailored CV and cover letter</summary>
-          <div class="links"><a href="${file(k.cvPdf)}" target="_blank">CV (PDF)</a>${k.cvDocx ? `<a href="${file(k.cvDocx)}">CV (Word)</a>` : ''}<a href="${file(k.letterPdf)}" target="_blank">Cover letter (PDF)</a><a href="#" data-copy="${esc(j.id)}">Copy cover letter text</a></div>
+          <div class="links"><a href="${file(k.cvPdf)}" target="_blank">CV (PDF)</a>${k.cvDocx ? `<a href="${file(k.cvDocx)}">CV (Word)</a>` : ''}<a href="${file(k.letterPdf)}" target="_blank">Cover letter (PDF)</a>${k.letterDocx ? `<a href="${file(k.letterDocx)}">Cover letter (Word)</a>` : ''}<a href="#" data-copy="${esc(j.id)}">Copy cover letter text</a></div>
           <b>What was changed in your CV:</b><ul>${k.changes.map(x => `<li>${esc(x)}</li>`).join('')}</ul></details>` : ''}
       <div class="links"><a href="${esc(j.url)}" target="_blank" rel="noopener">Open the job ad ↗</a>
         ${j.screenshot ? `<a href="${file(j.screenshot)}" target="_blank">Filled form</a>` : ''}${j.submittedShot ? `<a href="${file(j.submittedShot)}" target="_blank">Submission screenshot</a>` : ''}</div>

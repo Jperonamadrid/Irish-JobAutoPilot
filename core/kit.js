@@ -6,7 +6,7 @@ const { log, norm } = require('./util');
 const { ask } = require('./llm');
 const { plainText } = require('./cvtext');
 const { cvFor } = require('./cv');
-const { letterPdf } = require('./browser');
+const { letterPdf, letterDocx } = require('./browser');
 
 const LETTER_SYSTEM = `You write a cover letter for one candidate and one job, in the candidate's voice.
 One page, three short paragraphs: why this role at this company, two or three matching achievements with numbers taken from the CV, a short close. Sign off with the candidate's full name.
@@ -45,8 +45,9 @@ async function makeKit(user, store, job) {
   const c = await cvFor(user, job);
   const letter = job.kit?.letter || await writeLetter(user, job);
   const letterFile = await letterPdf(path.join(dir, `Cover Letter - ${user.profile.fullName}.pdf`), letter);
+  const letterWord = await letterDocx(letterFile.replace(/\.pdf$/, '.docx'), letter);
   const rel = f => f && path.relative(user.dir, f);
-  const kit = { cvPdf: rel(c.pdf), cvDocx: rel(c.pdf.replace(/\.pdf$/, '.docx')), letter, letterPdf: rel(letterFile),
+  const kit = { cvPdf: rel(c.pdf), cvDocx: rel(c.pdf.replace(/\.pdf$/, '.docx')), letter, letterPdf: rel(letterFile), letterDocx: rel(letterWord),
     changes: cvChanges(user.cv(), c.tailoredCv), tailored: c.tailored, at: new Date().toISOString() };
   if (!fs.existsSync(path.join(user.dir, kit.cvDocx))) delete kit.cvDocx;
   store.update(job.id, { kit, ...(c.tailored ? { cvPdf: kit.cvPdf, cvSummary: c.summary } : {}) });

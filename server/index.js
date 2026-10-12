@@ -65,9 +65,15 @@ const readBody = (req, limit = 15e6) => new Promise((resolve, reject) => {
   req.on('end', () => resolve(Buffer.concat(chunks))); req.on('error', reject);
 });
 const json = async req => { const b = await readBody(req, 2e6); return b.length ? JSON.parse(b) : {}; };
+// Files keep their real names when saved ("Maria Murphy CV.pdf", not "file.pdf"): recruiters see the
+// name of whatever gets uploaded. PDFs and images open in the browser; Word files download.
 function sendFile(res, file) {
   if (!fs.existsSync(file) || !fs.statSync(file).isFile()) return send(res, 404, { error: 'not found' });
-  res.writeHead(200, { 'Content-Type': TYPES[path.extname(file).toLowerCase()] || 'application/octet-stream', 'Cache-Control': 'no-store' });
+  const ext = path.extname(file).toLowerCase(), name = path.basename(file);
+  const how = ['.pdf', '.png', '.txt', '.html', '.js', '.css', '.svg'].includes(ext) ? 'inline' : 'attachment';
+  const ascii = name.replace(/[^\x20-\x7e]/g, '_').replace(/"/g, "'");
+  res.writeHead(200, { 'Content-Type': TYPES[ext] || 'application/octet-stream', 'Cache-Control': 'no-store',
+    'Content-Disposition': `${how}; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(name)}` });
   fs.createReadStream(file).pipe(res);
 }
 
@@ -224,15 +230,25 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
+function openBrowser(link) {
+  if (process.argv.includes('--no-open')) return;
+  const opener = process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'cmd' : 'xdg-open';
+  const args = process.platform === 'win32' ? ['/c', 'start', '', link] : [link];
+  spawn(opener, args, { stdio: 'ignore', detached: true }).on('error', () => {}).unref();
+}
+
 if (require.main === module) {
+  const link = `http://localhost:${PORT}`;
+  // Started twice (e.g. start.bat double-clicked again)? Just open the one already running.
+  server.on('error', e => {
+    if (e.code !== 'EADDRINUSE') throw e;
+    console.log(`JobPilot is already running at ${link}; opening it.`);
+    openBrowser(link);
+    setTimeout(() => process.exit(0), 1500);
+  });
   server.listen(PORT, '127.0.0.1', () => {
-    const link = `http://localhost:${PORT}`;
-    console.log(`JobPilot is running at ${link}  (press Ctrl+C to stop)`);
-    if (!process.argv.includes('--no-open')) {
-      const opener = process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'cmd' : 'xdg-open';
-      const args = process.platform === 'win32' ? ['/c', 'start', '', link] : [link];
-      spawn(opener, args, { stdio: 'ignore', detached: true }).on('error', () => {}).unref();
-    }
+    console.log(`JobPilot is running at ${link}  (keep this window open; press Ctrl+C to stop)`);
+    openBrowser(link);
   });
 }
 
