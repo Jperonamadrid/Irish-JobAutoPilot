@@ -60,6 +60,10 @@ async function emptyRequired(page) {
   });
 }
 
+// Answers from an earlier fill, reused at no AI cost. One letter per job: the one shown on the
+// Jobs page (kit) is the one the form gets.
+const earlierAnswers = job => job.kit?.letter ? { ...job.answers, coverLetter: job.kit.letter } : job.answers;
+
 // Fill one job's form in `browser`. Returns the open page when keepOpen, otherwise closes it.
 async function prepareOne(user, browser, store, job, { keepOpen = false } = {}) {
   const ad = adapters[job.ats];
@@ -78,7 +82,7 @@ async function prepareOne(user, browser, store, job, { keepOpen = false } = {}) 
     if (c.tailored) store.update(job.id, { cvPdf: path.relative(user.dir, c.pdf), cvSummary: c.summary });
   } else { files.cv = await masterPdf(user); files.summary = user.cv().summary; }
 
-  const res = await resolve(user, job, sch.fields, files, job.answers);
+  const res = await resolve(user, job, sch.fields, files, earlierAnswers(job));
   if (res.coverLetter && sch.fields.some(f => f.role === 'coverLetter' && f.type === 'file'))
     files.coverLetter = await letterPdf(path.join(out, `Cover Letter - ${user.profile.fullName}.pdf`), res.coverLetter);
   if (res.coverLetter) { fs.mkdirSync(out, { recursive: true }); fs.writeFileSync(path.join(out, 'cover-letter.txt'), res.coverLetter); }
@@ -175,4 +179,4 @@ async function review(user, store, { ids, onStep } = {}) {
   } finally { await browser.close().catch(() => {}); await closePdf(); }
 }
 
-module.exports = { prepare, review, prepareOne, pick, adapters, canAutoSubmit, emptyRequired };
+module.exports = { prepare, review, prepareOne, pick, adapters, canAutoSubmit, emptyRequired, earlierAnswers };
